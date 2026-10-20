@@ -12,6 +12,7 @@ import type {
   TaskQuery
 } from '../shared/types'
 import { aiApi } from './ai'
+import { voiceApi } from './voice'
 
 const api = {
   notes: {
@@ -38,7 +39,8 @@ const api = {
     const listener = (_e: unknown, change: DataChange): void => cb(change)
     ipcRenderer.on('data:changed', listener)
     return () => ipcRenderer.removeListener('data:changed', listener)
-  }
+  },
+  voice: voiceApi
 }
 
 export type Api = typeof api

@@ -3,6 +3,9 @@ import { app, BrowserWindow, shell } from 'electron'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { registerAiIpc } from './ai/ipc'
+import { registerVoice } from './voice'
+
+let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -20,6 +23,10 @@ function createWindow(): void {
     }
   })
 
+  mainWindow = win
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
   win.on('ready-to-show', () => win.show())
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
@@ -37,6 +44,10 @@ app.whenReady().then(() => {
   const store = initStore(join(app.getPath('userData'), 'ai-notes.db'))
   registerIpc(store)
   registerAiIpc()
+  registerVoice(() => {
+    if (!mainWindow) createWindow()
+    return mainWindow
+  })
   createWindow()
 
   app.on('activate', () => {
