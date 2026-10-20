@@ -41,6 +41,8 @@ export interface Task {
   priority: TaskPriority
   /** Topic id or null */
   topicId: string | null
+  /** Manual order within a list (drag & drop); smaller comes first */
+  sortOrder: number
   /** YYYY-MM-DD or null */
   dueDate: string | null
   createdAt: string
@@ -77,9 +79,13 @@ export interface TaskInput {
   priority?: TaskPriority
   dueDate?: string | null
   topicId?: string | null
+  /** Defaults to "after all existing tasks" */
+  sortOrder?: number
 }
 
-export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId'>>
+export type TaskPatch = Partial<
+  Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'sortOrder'>
+>
 
 export interface CompleteTaskOptions {
   /** Appended to the task description, e.g. "what was done" */

@@ -16,6 +16,12 @@ function createWindow(): void {
     show: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 14 },
+    // Native translucent sidebar on macOS; the renderer keeps the content area opaque.
+    ...(process.platform === 'darwin' && {
+      vibrancy: 'sidebar' as const,
+      visualEffectState: 'active' as const,
+      backgroundColor: '#00000000'
+    }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

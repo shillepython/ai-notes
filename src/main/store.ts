@@ -65,6 +65,7 @@ const toTask = (r: Row): Task => ({
   status: r.status as TaskStatus,
   priority: r.priority as Task['priority'],
   topicId: (r.topic_id as string | null) ?? null,
+  sortOrder: (r.sort_order as number | null) ?? 0,
   dueDate: (r.due_date as string | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
@@ -107,6 +108,11 @@ export class Store extends EventEmitter {
   private migrate(): void {
     const cols = (this.db.prepare('PRAGMA table_info(tasks)').all() as Row[]).map((c) => c.name)
     if (!cols.includes('topic_id')) this.db.exec('ALTER TABLE tasks ADD COLUMN topic_id TEXT')
+    if (!cols.includes('sort_order')) {
+      this.db.exec('ALTER TABLE tasks ADD COLUMN sort_order REAL')
+      // Existing tasks keep their creation order.
+      this.db.exec("UPDATE tasks SET sort_order = (julianday(created_at) - 2440587.5) * 86400000")
+    }
   }
 
   close(): void {
@@ -189,8 +195,8 @@ export class Store extends EventEmitter {
     const status = input.status ?? 'todo'
     this.db
       .prepare(
-        `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, sort_order, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -200,6 +206,7 @@ export class Store extends EventEmitter {
         input.priority ?? 'medium',
         input.dueDate ?? null,
         this.checkTopicId(input.topicId),
+        input.sortOrder ?? Date.now(),
         ts,
         ts,
         status === 'done' ? ts : null
@@ -219,7 +226,7 @@ export class Store extends EventEmitter {
     this.db
       .prepare(
         `UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, topic_id = ?,
-           updated_at = ?, completed_at = ? WHERE id = ?`
+           sort_order = ?, updated_at = ?, completed_at = ? WHERE id = ?`
       )
       .run(
         next.title,
@@ -228,6 +235,7 @@ export class Store extends EventEmitter {
         next.priority,
         next.dueDate,
         next.topicId,
+        next.sortOrder,
         next.updatedAt,
         next.completedAt,
         id
