@@ -5,9 +5,18 @@ directories:
 files:
   - out/**
   - package.json
+  # onnxruntime-node ships binaries for every OS; only macOS ones are needed.
+  - '!node_modules/onnxruntime-node/bin/napi-v*/{linux,win32}/**'
+asarUnpack:
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
+  - node_modules/sharp/**
+  - node_modules/@img/**
 mac:
   target:
     - dmg
   category: public.app-category.productivity
+  extendInfo:
+    NSMicrophoneUsageDescription: AI Notes слушает микрофон, чтобы распознавать голосовые команды и диктовку.
 dmg:
   artifactName: ${name}-${version}.${ext}

@@ -68,3 +68,32 @@ store.listNotes({ query: 'идеи' })
 
 В renderer то же самое доступно как `window.api.notes.*`, `window.api.tasks.*` и
 `window.api.onDataChanged(cb)`.
+
+## Голосовой ввод
+
+Распознавание речи работает локально (Whisper через `@huggingface/transformers` + onnxruntime),
+без отдельных ключей и интернета. При первом запуске модель (~250 МБ) скачивается в
+`~/Library/Application Support/ai-notes/models`, дальше всё офлайн.
+
+- Кнопка с микрофоном: нажать, говорить, нажать ещё раз. `Esc` отменяет запись.
+- Глобальная горячая клавиша `⌘⇧Space` из любого приложения: окно выходит на передний план
+  и начинается запись, повторное нажатие останавливает и распознаёт.
+- При первой записи macOS спросит доступ к микрофону.
+
+Настройки через переменные окружения (для `npm run dev`):
+
+| Переменная | По умолчанию | |
+| --- | --- | --- |
+| `VOICE_MODEL` | `onnx-community/whisper-small` | `onnx-community/whisper-large-v3-turbo` точнее, но в ~3 раза больше |
+| `VOICE_LANGUAGE` | `russian` | язык распознавания |
+| `VOICE_SHORTCUT` | `CommandOrControl+Shift+Space` | формат Electron accelerator |
+
+Подключение в интерфейсе:
+
+```tsx
+import { VoiceButton } from '@renderer/voice'
+
+<VoiceButton onTranscript={(text, source) => sendToClaude(text)} />
+```
+
+`source` равен `'hotkey'` или `'button'`. Есть и хук `useVoiceInput({ onTranscript })` для своей кнопки.
