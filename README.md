@@ -18,6 +18,10 @@ npm install
 npm run dev        # запуск в режиме разработки
 ```
 
+Если npm пропустил install-скрипты зависимостей, бинарник Electron докачается сам при
+`npm install` или перед `npm run dev` (скрипт `scripts/ensure-electron.mjs`). Вручную:
+`node node_modules/electron/install.js`.
+
 Другие команды:
 
 ```bash

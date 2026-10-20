@@ -46,3 +46,35 @@ test('update_note append keeps existing content; search spans notes and tasks', 
   assert.equal(res.notes.length, 1)
   assert.equal(res.tasks.length, 1)
 })
+
+test('create_tasks with a topic name creates the topic once and files tasks into it', () => {
+  const s = fresh()
+  const res = executeTool(s, 'create_tasks', {
+    topic: 'Работа',
+    tasks: [{ title: 'Отчёт' }, { title: 'Созвон' }, { title: 'Купить хлеб', topic: 'Дом' }]
+  })
+  assert.equal(res.isError, false)
+  assert.match(res.summary, /новые топики: Работа, Дом/)
+  assert.equal(s.listTopics().length, 2)
+
+  const work = JSON.parse(executeTool(s, 'list_tasks', { topic: 'работа' }).content)
+  assert.equal(work.length, 2)
+  assert.equal(work[0].topic, 'Работа')
+  assert.equal(executeTool(s, 'list_tasks', { topic: 'Нет такого' }).isError, true)
+
+  // A second mention reuses the existing topic regardless of case.
+  executeTool(s, 'create_tasks', { topic: 'работа', tasks: [{ title: 'Ревью' }] })
+  assert.equal(s.listTopics().length, 2)
+
+  const bread = s.listTasks({ query: 'хлеб' })[0]
+  executeTool(s, 'update_task', { id: bread.id, topic: null })
+  assert.equal(s.getTask(bread.id)!.topicId, null)
+
+  const topics = JSON.parse(executeTool(s, 'list_topics', {}).content)
+  assert.deepEqual(
+    topics.map((t: { name: string; openTasks: number }) => [t.name, t.openTasks]),
+    [['Дом', 0], ['Работа', 3]]
+  )
+  assert.equal(executeTool(s, 'delete_topic', { id: topics[1].id }).isError, false)
+  assert.equal(s.listTasks().length, 4)
+})

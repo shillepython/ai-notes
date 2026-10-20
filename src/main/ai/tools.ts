@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import type { Store } from '../store'
-import type { Note, Task } from '@shared/types'
+import type { Note, Task, Topic } from '@shared/types'
 
 // Tools the assistant can call. Each one maps onto the data service in
 // ../store, so every change the AI makes goes through the same code path
@@ -21,15 +21,43 @@ function tool<S extends z.ZodType>(def: ToolDef<S>): ToolDef<S> {
   return def
 }
 
-const taskView = (t: Task) => ({
+const topicName = z.string().min(1).describe('Название топика, например «Работа». Если такого нет, он будет создан')
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Цвет в формате #RRGGBB')
+
+const taskView = (store: Store, t: Task) => ({
   id: t.id,
   title: t.title,
   description: t.description,
   status: t.status,
   priority: t.priority,
   dueDate: t.dueDate,
+  topic: t.topicId ? (store.getTopic(t.topicId)?.name ?? null) : null,
   completedAt: t.completedAt
 })
+
+const topicView = (store: Store, t: Topic) => ({
+  id: t.id,
+  name: t.name,
+  color: t.color,
+  icon: t.icon,
+  openTasks: store.listTasks({ topicId: t.id, status: ['todo', 'in_progress'] }).length
+})
+
+/** Finds a topic by name, creating it when missing. Returns the topic and whether it was created. */
+function ensureTopic(store: Store, name: string): { topic: Topic; created: boolean } {
+  const existing = store.findTopicByName(name)
+  if (existing) return { topic: existing, created: false }
+  return { topic: store.createTopic({ name }), created: true }
+}
+
+function requireTopic(store: Store, id: string): Topic {
+  const topic = store.getTopic(id)
+  if (!topic) throw new Error(`Топик ${id} не найден. Найди его через list_topics.`)
+  return topic
+}
+
+const createdTopicsNote = (names: string[]): string =>
+  names.length ? `; новые топики: ${names.join(', ')}` : ''
 
 const noteView = (n: Note, full = false) => ({
   id: n.id,
@@ -68,18 +96,30 @@ const TOOLS = {
                   .optional()
                   .describe('Markdown: строка контекста, затем шаги чекбоксами `- [ ] шаг`'),
                 dueDate: isoDate.optional().describe('Срок в формате YYYY-MM-DD'),
-                priority: priority.optional()
+                priority: priority.optional(),
+                topic: topicName.optional().describe('Топик этой задачи, если отличается от общего')
               })
               .strict()
           )
-          .min(1)
+          .min(1),
+        topic: topicName.optional().describe('Топик для всех задач, например «Работа»')
       })
       .strict(),
-    run(store, { tasks }) {
-      const created = tasks.map((t) => store.createTask(t))
+    run(store, { tasks, topic }) {
+      const newTopics: string[] = []
+      const created = tasks.map(({ topic: own, ...t }) => {
+        const name = own ?? topic
+        let topicId: string | null = null
+        if (name) {
+          const res = ensureTopic(store, name)
+          if (res.created) newTopics.push(res.topic.name)
+          topicId = res.topic.id
+        }
+        return store.createTask({ ...t, topicId })
+      })
       return {
-        result: created.map(taskView),
-        summary: `Создано задач: ${created.length} (${created.map((t) => t.title).join(', ')})`
+        result: created.map((t) => taskView(store, t)),
+        summary: `Создано задач: ${created.length} (${created.map((t) => t.title).join(', ')})${createdTopicsNote(newTopics)}`
       }
     }
   }),
@@ -92,12 +132,23 @@ const TOOLS = {
         status: status.optional(),
         query: z.string().optional().describe('Поиск по названию и описанию'),
         dueFrom: isoDate.optional(),
-        dueTo: isoDate.optional()
+        dueTo: isoDate.optional(),
+        topic: z.string().min(1).nullable().optional().describe('Только задачи этого топика; null — задачи без топика')
       })
       .strict(),
-    run(store, input) {
-      const tasks = store.listTasks(input)
-      return { result: tasks.map(taskView), summary: `Найдено задач: ${tasks.length}` }
+    run(store, { topic, ...query }) {
+      let topicId: string | null | undefined
+      if (topic === null) topicId = null
+      else if (topic !== undefined) {
+        const found = store.findTopicByName(topic)
+        if (!found) {
+          const names = store.listTopics().map((t) => t.name)
+          throw new Error(`Топик «${topic}» не найден. Есть: ${names.join(', ') || 'ни одного'}`)
+        }
+        topicId = found.id
+      }
+      const tasks = store.listTasks({ ...query, topicId })
+      return { result: tasks.map((t) => taskView(store, t)), summary: `Найдено задач: ${tasks.length}` }
     }
   }),
 
@@ -108,7 +159,7 @@ const TOOLS = {
     run(store, { id, comment }) {
       requireTask(store, id)
       const task = store.completeTask(id, { comment })
-      return { result: taskView(task), summary: `Закрыта задача «${task.title}»` }
+      return { result: taskView(store, task), summary: `Закрыта задача «${task.title}»` }
     }
   }),
 
@@ -118,7 +169,7 @@ const TOOLS = {
     run(store, { id }) {
       requireTask(store, id)
       const task = store.reopenTask(id)
-      return { result: taskView(task), summary: `Задача «${task.title}» снова открыта` }
+      return { result: taskView(store, task), summary: `Задача «${task.title}» снова открыта` }
     }
   }),
 
@@ -133,13 +184,22 @@ const TOOLS = {
         description: z.string().optional().describe('Новое описание целиком (замена)'),
         status: status.optional(),
         priority: priority.optional(),
-        dueDate: isoDate.nullable().optional().describe('null убирает срок')
+        dueDate: isoDate.nullable().optional().describe('null убирает срок'),
+        topic: topicName.nullable().optional().describe('Перенести в топик (создастся, если нет); null убирает из топика')
       })
       .strict(),
-    run(store, { id, ...patch }) {
+    run(store, { id, topic, ...patch }) {
       requireTask(store, id)
-      const task = store.updateTask(id, patch)
-      return { result: taskView(task), summary: `Обновлена задача «${task.title}»` }
+      const newTopics: string[] = []
+      let topicId: string | null | undefined
+      if (topic === null) topicId = null
+      else if (topic !== undefined) {
+        const res = ensureTopic(store, topic)
+        if (res.created) newTopics.push(res.topic.name)
+        topicId = res.topic.id
+      }
+      const task = store.updateTask(id, { ...patch, topicId })
+      return { result: taskView(store, task), summary: `Обновлена задача «${task.title}»${createdTopicsNote(newTopics)}` }
     }
   }),
 
@@ -150,6 +210,63 @@ const TOOLS = {
       const task = requireTask(store, id)
       store.deleteTask(id)
       return { result: { deleted: id }, summary: `Удалена задача «${task.title}»` }
+    }
+  }),
+
+  list_topics: tool({
+    description:
+      'Список топиков (групп задач, например «Работа», «Дом») с числом открытых задач. ' +
+      'Используй, чтобы узнать id топика или какие топики есть.',
+    schema: z.object({}).strict(),
+    run(store) {
+      const topics = store.listTopics()
+      return { result: topics.map((t) => topicView(store, t)), summary: `Топиков: ${topics.length}` }
+    }
+  }),
+
+  create_topic: tool({
+    description:
+      'Создаёт топик (группу задач). Подбери подходящий эмодзи в icon. Для задач в новом топике ' +
+      'не обязательно создавать его отдельно: create_tasks с topic сам создаст недостающий.',
+    schema: z
+      .object({
+        name: z.string().min(1),
+        icon: z.string().optional().describe('Один эмодзи'),
+        color: hexColor.optional()
+      })
+      .strict(),
+    run(store, input) {
+      const existing = store.findTopicByName(input.name)
+      if (existing) return { result: topicView(store, existing), summary: `Топик «${existing.name}» уже есть` }
+      const topic = store.createTopic(input)
+      return { result: topicView(store, topic), summary: `Создан топик «${topic.name}»` }
+    }
+  }),
+
+  update_topic: tool({
+    description: 'Переименовывает топик или меняет его эмодзи и цвет.',
+    schema: z
+      .object({
+        id: z.string(),
+        name: z.string().min(1).optional(),
+        icon: z.string().optional(),
+        color: hexColor.optional()
+      })
+      .strict(),
+    run(store, { id, ...patch }) {
+      requireTopic(store, id)
+      const topic = store.updateTopic(id, patch)
+      return { result: topicView(store, topic), summary: `Обновлён топик «${topic.name}»` }
+    }
+  }),
+
+  delete_topic: tool({
+    description: 'Удаляет топик. Задачи из него не удаляются, а остаются без топика. Только по явной просьбе.',
+    schema: z.object({ id: z.string() }).strict(),
+    run(store, { id }) {
+      const topic = requireTopic(store, id)
+      store.deleteTopic(id)
+      return { result: { deleted: id }, summary: `Удалён топик «${topic.name}»` }
     }
   }),
 
@@ -221,7 +338,7 @@ const TOOLS = {
       const notes = store.listNotes({ query })
       const tasks = store.listTasks({ query })
       return {
-        result: { notes: notes.map((n) => noteView(n)), tasks: tasks.map(taskView) },
+        result: { notes: notes.map((n) => noteView(n)), tasks: tasks.map((t) => taskView(store, t)) },
         summary: `Поиск «${query}»: заметок ${notes.length}, задач ${tasks.length}`
       }
     }

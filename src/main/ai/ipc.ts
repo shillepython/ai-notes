@@ -43,9 +43,9 @@ export function registerAiIpc(): void {
     return getSettings()
   })
 
-  ipcMain.handle('ai:send', (e, raw: unknown) => {
+  ipcMain.handle('ai:send', (e, raw: unknown, rawId: unknown) => {
     const text = typeof raw === 'string' ? raw.trim() : ''
-    const requestId = randomUUID()
+    const requestId = typeof rawId === 'string' && rawId ? rawId : randomUUID()
     const target = e.sender
     const apiKey = getApiKey()
 
@@ -73,7 +73,6 @@ export function registerAiIpc(): void {
         emit(target, { requestId, type: 'done' })
       }
     })
-    return requestId
   })
 
   ipcMain.handle('ai:cancel', () => {

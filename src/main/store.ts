@@ -12,8 +12,12 @@ import type {
   TaskInput,
   TaskPatch,
   TaskQuery,
-  TaskStatus
+  TaskStatus,
+  Topic,
+  TopicInput,
+  TopicPatch
 } from '../shared/types'
+import { TOPIC_COLORS } from '../shared/types.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS notes (
@@ -34,6 +38,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TEXT NOT NULL,
   completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS topics (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  color TEXT NOT NULL,
+  icon TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `
 
 type Row = Record<string, unknown>
@@ -52,10 +64,20 @@ const toTask = (r: Row): Task => ({
   description: r.description as string,
   status: r.status as TaskStatus,
   priority: r.priority as Task['priority'],
+  topicId: (r.topic_id as string | null) ?? null,
   dueDate: (r.due_date as string | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
   completedAt: (r.completed_at as string | null) ?? null
+})
+
+const toTopic = (r: Row): Topic => ({
+  id: r.id as string,
+  name: r.name as string,
+  color: r.color as string,
+  icon: r.icon as string,
+  createdAt: r.created_at as string,
+  updatedAt: r.updated_at as string
 })
 
 const matches = (query: string | undefined, ...fields: string[]): boolean => {
@@ -78,6 +100,13 @@ export class Store extends EventEmitter {
     this.db = new DatabaseSync(dbPath)
     this.db.exec('PRAGMA journal_mode = WAL;')
     this.db.exec(SCHEMA)
+    this.migrate()
+  }
+
+  /** Adds columns introduced after the first release to existing databases. */
+  private migrate(): void {
+    const cols = (this.db.prepare('PRAGMA table_info(tasks)').all() as Row[]).map((c) => c.name)
+    if (!cols.includes('topic_id')) this.db.exec('ALTER TABLE tasks ADD COLUMN topic_id TEXT')
   }
 
   close(): void {
@@ -145,6 +174,7 @@ export class Store extends EventEmitter {
       .filter((t) => !statuses || statuses.includes(t.status))
       .filter((t) => !q.dueFrom || (t.dueDate !== null && t.dueDate >= q.dueFrom))
       .filter((t) => !q.dueTo || (t.dueDate !== null && t.dueDate <= q.dueTo))
+      .filter((t) => q.topicId === undefined || t.topicId === q.topicId)
       .filter((t) => matches(q.query, t.title, t.description))
   }
 
@@ -159,8 +189,8 @@ export class Store extends EventEmitter {
     const status = input.status ?? 'todo'
     this.db
       .prepare(
-        `INSERT INTO tasks (id, title, description, status, priority, due_date, created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -169,6 +199,7 @@ export class Store extends EventEmitter {
         status,
         input.priority ?? 'medium',
         input.dueDate ?? null,
+        this.checkTopicId(input.topicId),
         ts,
         ts,
         status === 'done' ? ts : null
@@ -182,11 +213,12 @@ export class Store extends EventEmitter {
     if (!current) throw new Error(`Task not found: ${id}`)
     const ts = now()
     const next: Task = { ...current, ...stripUndefined(patch), updatedAt: ts }
+    next.topicId = this.checkTopicId(next.topicId)
     if (next.status === 'done' && current.status !== 'done') next.completedAt = ts
     if (next.status !== 'done') next.completedAt = null
     this.db
       .prepare(
-        `UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?,
+        `UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, topic_id = ?,
            updated_at = ?, completed_at = ? WHERE id = ?`
       )
       .run(
@@ -195,6 +227,7 @@ export class Store extends EventEmitter {
         next.status,
         next.priority,
         next.dueDate,
+        next.topicId,
         next.updatedAt,
         next.completedAt,
         id
@@ -221,6 +254,70 @@ export class Store extends EventEmitter {
     const res = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
     if (res.changes) this.emitChange({ entity: 'task', action: 'deleted', id })
     return res.changes > 0
+  }
+
+  private checkTopicId(topicId: string | null | undefined): string | null {
+    if (!topicId) return null
+    if (!this.getTopic(topicId)) throw new Error(`Topic not found: ${topicId}`)
+    return topicId
+  }
+
+  // ---- Topics ----
+
+  listTopics(): Topic[] {
+    const rows = this.db.prepare('SELECT * FROM topics').all() as Row[]
+    return rows.map(toTopic).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }
+
+  getTopic(id: string): Topic | null {
+    const row = this.db.prepare('SELECT * FROM topics WHERE id = ?').get(id) as Row | undefined
+    return row ? toTopic(row) : null
+  }
+
+  /** Case-insensitive exact match on the name. */
+  findTopicByName(name: string): Topic | null {
+    const key = name.trim().toLocaleLowerCase()
+    return this.listTopics().find((t) => t.name.toLocaleLowerCase() === key) ?? null
+  }
+
+  createTopic(input: TopicInput): Topic {
+    const name = input.name.trim()
+    if (!name) throw new Error('Topic name is required')
+    if (this.findTopicByName(name)) throw new Error(`Topic already exists: ${name}`)
+    const ts = now()
+    const id = randomUUID()
+    const color = input.color ?? TOPIC_COLORS[this.listTopics().length % TOPIC_COLORS.length]
+    this.db
+      .prepare('INSERT INTO topics (id, name, color, icon, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, name, color, input.icon ?? '', ts, ts)
+    this.emitChange({ entity: 'topic', action: 'created', id })
+    return this.getTopic(id)!
+  }
+
+  updateTopic(id: string, patch: TopicPatch): Topic {
+    const current = this.getTopic(id)
+    if (!current) throw new Error(`Topic not found: ${id}`)
+    const next = { ...current, ...stripUndefined(patch), updatedAt: now() }
+    next.name = next.name.trim()
+    if (!next.name) throw new Error('Topic name is required')
+    const clash = this.findTopicByName(next.name)
+    if (clash && clash.id !== id) throw new Error(`Topic already exists: ${next.name}`)
+    this.db
+      .prepare('UPDATE topics SET name = ?, color = ?, icon = ?, updated_at = ? WHERE id = ?')
+      .run(next.name, next.color, next.icon, next.updatedAt, id)
+    this.emitChange({ entity: 'topic', action: 'updated', id })
+    return next
+  }
+
+  /** Deletes the topic; its tasks are kept and lose their topic. */
+  deleteTopic(id: string): boolean {
+    const res = this.db.prepare('DELETE FROM topics WHERE id = ?').run(id)
+    if (!res.changes) return false
+    const freed = this.db.prepare('SELECT id FROM tasks WHERE topic_id = ?').all(id) as Row[]
+    this.db.prepare('UPDATE tasks SET topic_id = NULL WHERE topic_id = ?').run(id)
+    for (const r of freed) this.emitChange({ entity: 'task', action: 'updated', id: r.id as string })
+    this.emitChange({ entity: 'topic', action: 'deleted', id })
+    return true
   }
 }
 

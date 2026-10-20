@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Note, Task } from '@shared/types'
+import type { Note, Task, Topic } from '@shared/types'
 
-/** Loads all notes and tasks and reloads them whenever the main process reports a change. */
-export function useData(): { notes: Note[]; tasks: Task[]; reload: () => Promise<void> } {
+/** Loads all notes, tasks and topics and reloads them whenever the main process reports a change. */
+export function useData(): { notes: Note[]; tasks: Task[]; topics: Topic[]; reload: () => Promise<void> } {
   const [notes, setNotes] = useState<Note[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [topics, setTopics] = useState<Topic[]>([])
 
   const reload = useCallback(async () => {
-    const [n, t] = await Promise.all([window.api.notes.list(), window.api.tasks.list()])
+    const [n, t, tp] = await Promise.all([window.api.notes.list(), window.api.tasks.list(), window.api.topics.list()])
     setNotes(n)
     setTasks(t)
+    setTopics(tp)
   }, [])
 
   useEffect(() => {
@@ -17,5 +19,5 @@ export function useData(): { notes: Note[]; tasks: Task[]; reload: () => Promise
     return window.api.onDataChanged(() => reload())
   }, [reload])
 
-  return { notes, tasks, reload }
+  return { notes, tasks, topics, reload }
 }

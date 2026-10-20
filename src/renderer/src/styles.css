@@ -130,3 +130,16 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
 }
 .task-meta .danger-btn { margin-left: auto; }
+
+/* Topics */
+.topic-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.sidebar-input { margin: 2px 0 4px; width: 100%; }
+.topic-header h1 { display: flex; align-items: center; gap: 6px; }
+.topic-header input { font: inherit; color: inherit; background: transparent; border: none; outline: none; }
+.topic-icon-input { width: 1.6em; text-align: center; }
+.topic-name-input { flex: 1; min-width: 0; }
+.topic-tools { display: flex; align-items: center; gap: 6px; margin: -8px 0 16px; }
+.topic-tools .danger-btn { margin-left: auto; }
+.topic-swatch { width: 16px; height: 16px; border-radius: 50%; border: 2px solid transparent; }
+.topic-swatch.active { border-color: var(--text); }
+.topic-chip { font-size: 11px; border: 1px solid; border-radius: 10px; padding: 0 7px; margin-top: 2px; white-space: nowrap; }
