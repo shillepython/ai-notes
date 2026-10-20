@@ -43,6 +43,10 @@ export interface Task {
   topicId: string | null
   /** YYYY-MM-DD or null */
   dueDate: string | null
+  /** ISO timestamp when to show a notification, or null */
+  remindAt: string | null
+  /** ISO timestamp when the reminder was shown; reset when remindAt changes */
+  remindedAt: string | null
   createdAt: string
   updatedAt: string
   completedAt: string | null
@@ -77,9 +81,11 @@ export interface TaskInput {
   priority?: TaskPriority
   dueDate?: string | null
   topicId?: string | null
+  /** ISO timestamp */
+  remindAt?: string | null
 }
 
-export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId'>>
+export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'remindAt'>>
 
 export interface CompleteTaskOptions {
   /** Appended to the task description, e.g. "what was done" */

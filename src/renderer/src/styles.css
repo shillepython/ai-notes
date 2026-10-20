@@ -118,6 +118,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .task.done .check { background: var(--low); border-color: var(--low); }
 .due { font-size: 12px; color: var(--muted); white-space: nowrap; margin-top: 2px; }
 .due.overdue { color: var(--danger); }
+.reminder { font-size: 12px; color: var(--muted); white-space: nowrap; margin-top: 2px; }
 .badge { font-size: 11px; background: var(--accent); color: #fff; border-radius: 10px; padding: 1px 7px; margin-top: 2px; }
 .task-details { display: flex; flex-direction: column; gap: 8px; padding: 0 4px 14px 32px; }
 .field {

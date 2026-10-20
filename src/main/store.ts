@@ -66,6 +66,8 @@ const toTask = (r: Row): Task => ({
   priority: r.priority as Task['priority'],
   topicId: (r.topic_id as string | null) ?? null,
   dueDate: (r.due_date as string | null) ?? null,
+  remindAt: (r.remind_at as string | null) ?? null,
+  remindedAt: (r.reminded_at as string | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
   completedAt: (r.completed_at as string | null) ?? null
@@ -107,6 +109,8 @@ export class Store extends EventEmitter {
   private migrate(): void {
     const cols = (this.db.prepare('PRAGMA table_info(tasks)').all() as Row[]).map((c) => c.name)
     if (!cols.includes('topic_id')) this.db.exec('ALTER TABLE tasks ADD COLUMN topic_id TEXT')
+    if (!cols.includes('remind_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN remind_at TEXT')
+    if (!cols.includes('reminded_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN reminded_at TEXT')
   }
 
   close(): void {
@@ -189,8 +193,9 @@ export class Store extends EventEmitter {
     const status = input.status ?? 'todo'
     this.db
       .prepare(
-        `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, remind_at,
+           created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -200,6 +205,7 @@ export class Store extends EventEmitter {
         input.priority ?? 'medium',
         input.dueDate ?? null,
         this.checkTopicId(input.topicId),
+        checkTimestamp(input.remindAt),
         ts,
         ts,
         status === 'done' ? ts : null
@@ -214,12 +220,14 @@ export class Store extends EventEmitter {
     const ts = now()
     const next: Task = { ...current, ...stripUndefined(patch), updatedAt: ts }
     next.topicId = this.checkTopicId(next.topicId)
+    next.remindAt = checkTimestamp(next.remindAt)
+    if (next.remindAt !== current.remindAt) next.remindedAt = null
     if (next.status === 'done' && current.status !== 'done') next.completedAt = ts
     if (next.status !== 'done') next.completedAt = null
     this.db
       .prepare(
         `UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, topic_id = ?,
-           updated_at = ?, completed_at = ? WHERE id = ?`
+           remind_at = ?, reminded_at = ?, updated_at = ?, completed_at = ? WHERE id = ?`
       )
       .run(
         next.title,
@@ -228,6 +236,8 @@ export class Store extends EventEmitter {
         next.priority,
         next.dueDate,
         next.topicId,
+        next.remindAt,
+        next.remindedAt,
         next.updatedAt,
         next.completedAt,
         id
@@ -254,6 +264,31 @@ export class Store extends EventEmitter {
     const res = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
     if (res.changes) this.emitChange({ entity: 'task', action: 'deleted', id })
     return res.changes > 0
+  }
+
+  // ---- Reminders ----
+
+  /** Open tasks whose reminder time has come and that were not shown yet, oldest first. */
+  dueReminders(at: Date = new Date()): Task[] {
+    return this.pendingReminders().filter((t) => Date.parse(t.remindAt!) <= at.getTime())
+  }
+
+  /** The earliest reminder not shown yet, or null. */
+  nextReminderAt(): string | null {
+    return this.pendingReminders()[0]?.remindAt ?? null
+  }
+
+  /** Records that the reminder was shown, so it does not fire again. */
+  markReminded(id: string): void {
+    const res = this.db.prepare('UPDATE tasks SET reminded_at = ? WHERE id = ?').run(now(), id)
+    if (res.changes) this.emitChange({ entity: 'task', action: 'updated', id })
+  }
+
+  private pendingReminders(): Task[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM tasks WHERE remind_at IS NOT NULL AND reminded_at IS NULL AND status != 'done'`)
+      .all() as Row[]
+    return rows.map(toTask).sort((a, b) => Date.parse(a.remindAt!) - Date.parse(b.remindAt!))
   }
 
   private checkTopicId(topicId: string | null | undefined): string | null {
@@ -319,6 +354,14 @@ export class Store extends EventEmitter {
     this.emitChange({ entity: 'topic', action: 'deleted', id })
     return true
   }
+}
+
+/** Normalizes a timestamp to ISO (UTC), or throws on an unparseable one. */
+function checkTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null
+  const ms = Date.parse(value)
+  if (Number.isNaN(ms)) throw new Error(`Invalid timestamp: ${value}`)
+  return new Date(ms).toISOString()
 }
 
 function stripUndefined<T extends object>(obj: T): Partial<T> {

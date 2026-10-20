@@ -4,6 +4,7 @@ import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { registerAiIpc } from './ai/ipc'
 import { registerVoice } from './voice'
+import { startReminders } from './reminders'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -49,6 +50,10 @@ app.whenReady().then(() => {
     return mainWindow
   })
   createWindow()
+  startReminders(store, () => {
+    if (!mainWindow) createWindow()
+    return mainWindow!
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
