@@ -13,6 +13,7 @@
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "marked": "^18.1.1"
   },
   "devDependencies": {

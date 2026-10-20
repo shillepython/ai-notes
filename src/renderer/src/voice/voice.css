@@ -1,0 +1,72 @@
+.voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.voice-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.voice-button:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.voice-button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.voice-button--recording {
+  background: #e5484d;
+  border-color: #e5484d;
+  color: #fff;
+  animation: voice-pulse 1.4s ease-out infinite;
+}
+
+.voice-button--recording:hover:not(:disabled) {
+  background: #d93d42;
+}
+
+.voice-status {
+  font-size: 12px;
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-status--error {
+  color: #e5484d;
+  opacity: 1;
+}
+
+.voice-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: voice-spin 0.8s linear infinite;
+}
+
+@keyframes voice-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.5); }
+  100% { box-shadow: 0 0 0 10px rgba(229, 72, 77, 0); }
+}
+
+@keyframes voice-spin {
+  to { transform: rotate(360deg); }
+}
