@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type JSX, type KeyboardEvent } from 'react'
 import { AI_MODELS, type AiChatItem, type AiEffort, type AiModelId, type AiSettings } from '@shared/ai'
+import { VoiceButton } from '@renderer/voice'
 import './AssistantPanel.css'
 
 const ai = (): typeof window.api.ai => window.api.ai
@@ -131,6 +132,11 @@ export default function AssistantPanel(): JSX.Element {
       </div>
 
       <form className="assistant__composer" onSubmit={onFormSubmit}>
+        <VoiceButton
+          onTranscript={(text, source) =>
+            source === 'hotkey' && !busy ? void submit(text) : setInput((v) => (v ? v + ' ' : '') + text)
+          }
+        />
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
