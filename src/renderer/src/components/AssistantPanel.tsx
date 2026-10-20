@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type JSX, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type KeyboardEvent } from 'react'
+import { marked } from 'marked'
 import { AI_MODELS, type AiChatItem, type AiEffort, type AiModelId, type AiSettings } from '@shared/ai'
 import { VoiceButton } from '@renderer/voice'
+import { onUi } from '../hotkeys'
+import { Icon, Kbd } from './Icon'
+import { autosize } from './TaskBoard'
 import './AssistantPanel.css'
 
 const ai = (): typeof window.api.ai => window.api.ai
@@ -16,7 +20,7 @@ const EXAMPLES = [
  * edit notes. Other components can submit text (e.g. from voice input) with
  * window.dispatchEvent(new CustomEvent('assistant:submit', { detail: 'текст' })).
  */
-export default function AssistantPanel(): JSX.Element {
+export default function AssistantPanel({ onClose }: { onClose?: () => void }): JSX.Element {
   const [settings, setSettings] = useState<AiSettings | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [items, setItems] = useState<AiChatItem[]>([])
@@ -24,6 +28,7 @@ export default function AssistantPanel(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const currentRequest = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     ai()
@@ -48,8 +53,11 @@ export default function AssistantPanel(): JSX.Element {
   )
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
   }, [items, busy])
+
+  useEffect(() => autosize(inputRef.current), [input])
+  useEffect(() => onUi('assistant:focus', () => inputRef.current?.focus()), [])
 
   const submit = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -107,54 +115,85 @@ export default function AssistantPanel(): JSX.Element {
   return (
     <div className="assistant">
       <header className="assistant__header">
-        <span className="assistant__title">Ассистент</span>
-        <button className="assistant__icon-btn" onClick={newChat} title="Новый диалог">
-          ＋
+        <span className="assistant__title">
+          <span className="assistant__logo">
+            <Icon name="sparkles" size={14} />
+          </span>
+          Ассистент
+          <span className="assistant__model">{AI_MODELS.find((m) => m.id === settings.model)?.label.split(' (')[0]}</span>
+        </span>
+        <button className="assistant__icon-btn" onClick={newChat} title="Новый диалог" disabled={items.length === 0 && !busy}>
+          <Icon name="message" size={15} />
         </button>
         <button className="assistant__icon-btn" onClick={() => setShowSettings(true)} title="Настройки">
-          ⚙
+          <Icon name="settings" size={15} />
         </button>
+        {onClose && (
+          <button className="assistant__icon-btn" onClick={onClose} title="Скрыть (⌘.)">
+            <Icon name="x" size={15} />
+          </button>
+        )}
       </header>
 
       <div className="assistant__list" ref={listRef}>
         {items.length === 0 && (
           <div className="assistant__empty">
-            <p>Надиктуй, что нужно сделать, или расскажи, что уже сделано.</p>
-            {EXAMPLES.map((ex) => (
-              <button key={ex} className="assistant__example" onClick={() => submit(ex)} disabled={busy}>
-                {ex}
-              </button>
-            ))}
+            <div className="assistant__hero">
+              <Icon name="sparkles" size={26} />
+            </div>
+            <h3>Чем помочь?</h3>
+            <p>Надиктуй или напиши, что нужно сделать, или расскажи, что уже сделано. Я сам создам и закрою задачи.</p>
+            <div className="assistant__examples">
+              {EXAMPLES.map((ex) => (
+                <button key={ex} className="assistant__example" onClick={() => submit(ex)} disabled={busy}>
+                  {ex}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {items.map((item, i) => (
           <ChatItem key={i} item={item} />
         ))}
-        {busy && <div className="assistant__thinking">Думаю…</div>}
+        {busy && (
+          <div className="assistant__thinking" aria-label="Думаю">
+            <span />
+            <span />
+            <span />
+          </div>
+        )}
       </div>
 
       <form className="assistant__composer" onSubmit={onFormSubmit}>
-        <VoiceButton
-          onTranscript={(text, source) =>
-            source === 'hotkey' && !busy ? void submit(text) : setInput((v) => (v ? v + ' ' : '') + text)
-          }
-        />
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Например: запланируй на завтра…"
-          rows={3}
-        />
-        {busy ? (
-          <button type="button" onClick={() => ai().cancel()}>
-            Стоп
-          </button>
-        ) : (
-          <button type="submit" disabled={!input.trim()}>
-            Отправить
-          </button>
-        )}
+        <div className="assistant__box">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Что нужно сделать? Например: завтра позвонить в банк и доделать презентацию к пятнице…"
+            rows={3}
+          />
+          <div className="assistant__box-bar">
+            <VoiceButton
+              onTranscript={(text, source) =>
+                source === 'hotkey' && !busy ? void submit(text) : setInput((v) => (v ? v + ' ' : '') + text)
+              }
+            />
+            <span className="assistant__hint">
+              <Kbd keys="enter" /> отправить · <Kbd keys="shift+enter" /> строка
+            </span>
+            {busy ? (
+              <button type="button" className="assistant__send assistant__send--stop" onClick={() => ai().cancel()} title="Остановить">
+                <Icon name="stop" size={14} />
+              </button>
+            ) : (
+              <button type="submit" className="assistant__send" disabled={!input.trim()} title="Отправить (Enter)">
+                <Icon name="arrowUp" size={16} />
+              </button>
+            )}
+          </div>
+        </div>
       </form>
     </div>
   )
@@ -165,16 +204,21 @@ function ChatItem({ item }: { item: AiChatItem }): JSX.Element {
     case 'user':
       return <div className="assistant__msg assistant__msg--user">{item.text}</div>
     case 'assistant':
-      return <div className="assistant__msg assistant__msg--assistant">{item.text}</div>
+      return <AssistantText text={item.text} />
     case 'action':
       return (
         <div className={`assistant__action ${item.ok ? '' : 'assistant__action--failed'}`}>
-          {item.ok ? '✓' : '✕'} {item.summary}
+          <Icon name={item.ok ? 'check' : 'x'} size={12} /> {item.summary}
         </div>
       )
     case 'error':
       return <div className="assistant__error">{item.text}</div>
   }
+}
+
+function AssistantText({ text }: { text: string }): JSX.Element {
+  const html = useMemo(() => marked.parse(text, { async: false, breaks: true }) as string, [text])
+  return <div className="assistant__msg assistant__msg--assistant markdown" dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 function AssistantSettings({
@@ -216,7 +260,7 @@ function AssistantSettings({
         <span className="assistant__title">Настройки ассистента</span>
         {onClose && (
           <button className="assistant__icon-btn" onClick={onClose} title="Назад">
-            ✕
+            <Icon name="x" size={15} />
           </button>
         )}
       </header>

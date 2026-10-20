@@ -1,9 +1,11 @@
 /* Code prompt button in task details */
-.code-prompt { display: inline-flex; align-items: center; gap: 8px; }
+.code-prompt { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .code-prompt-btn {
-  padding: 4px 10px; border-radius: 6px; font-size: 13px; color: var(--accent);
-  border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 500; color: var(--accent); background: var(--accent-soft);
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--spring);
 }
-.code-prompt-btn:hover:not(:disabled) { background: var(--hover); }
+.code-prompt-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.code-prompt-btn:active:not(:disabled) { transform: scale(0.96); }
 .code-prompt-btn:disabled { opacity: 0.6; cursor: default; }
 .code-prompt-error { color: var(--danger); font-size: 12px; }
