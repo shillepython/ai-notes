@@ -79,3 +79,28 @@ test('opening a database from before topics adds the topic_id column', async () 
   assert.equal(s.updateTask('t1', { topicId: topic.id }).topicId, topic.id)
   s.close()
 })
+
+test('reminders: due ones fire once, changing the time re-arms, done tasks are skipped', () => {
+  const s = fresh()
+  const a = s.createTask({ title: 'Позвонить маме', remindAt: '2026-10-21T15:00:00.000Z' })
+  const b = s.createTask({ title: 'Выпить таблетку', remindAt: '2026-10-21T12:00:00+03:00' })
+  s.createTask({ title: 'Без напоминания' })
+  assert.equal(b.remindAt, '2026-10-21T09:00:00.000Z')
+  assert.equal(s.nextReminderAt(), b.remindAt)
+
+  assert.deepEqual(s.dueReminders(new Date('2026-10-21T10:00:00Z')).map((t) => t.title), ['Выпить таблетку'])
+  s.markReminded(b.id)
+  assert.ok(s.getTask(b.id)!.remindedAt)
+  assert.equal(s.dueReminders(new Date('2026-10-21T10:00:00Z')).length, 0)
+  assert.equal(s.nextReminderAt(), a.remindAt)
+
+  // Other edits keep it marked; a new time re-arms it.
+  s.updateTask(b.id, { title: 'Выпить таблетки' })
+  assert.ok(s.getTask(b.id)!.remindedAt)
+  s.updateTask(b.id, { remindAt: '2026-10-22T09:00:00.000Z' })
+  assert.equal(s.getTask(b.id)!.remindedAt, null)
+
+  s.completeTask(a.id)
+  assert.equal(s.dueReminders(new Date('2026-10-23T00:00:00Z')).length, 1)
+  assert.throws(() => s.updateTask(a.id, { remindAt: 'завтра' }))
+})

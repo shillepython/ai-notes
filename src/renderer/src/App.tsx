@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useData } from './useData'
 import Sidebar, { type View } from './components/Sidebar'
 import NoteEditor from './components/NoteEditor'
@@ -8,6 +8,17 @@ import AssistantPanel from './components/AssistantPanel'
 export default function App(): React.JSX.Element {
   const { notes, tasks, topics } = useData()
   const [view, setView] = useState<View>({ kind: 'tasks', filter: 'today' })
+  // Task to expand after a reminder notification is clicked; `at` re-triggers for the same task.
+  const [focus, setFocus] = useState<{ id: string; at: number } | null>(null)
+
+  useEffect(
+    () =>
+      window.api.onReminderOpen((id) => {
+        setView({ kind: 'tasks', filter: 'all' })
+        setFocus({ id, at: Date.now() })
+      }),
+    []
+  )
 
   const createNote = async (): Promise<void> => {
     const note = await window.api.notes.create({ title: 'Без названия', content: '' })
@@ -20,7 +31,7 @@ export default function App(): React.JSX.Element {
     <div className="app">
       <Sidebar notes={notes} tasks={tasks} topics={topics} view={view} onSelect={setView} onCreateNote={createNote} />
       <main className="content">
-        {view.kind === 'tasks' && <TaskBoard tasks={tasks} topics={topics} filter={view.filter} />}
+        {view.kind === 'tasks' && <TaskBoard tasks={tasks} topics={topics} filter={view.filter} focus={focus} />}
         {view.kind === 'topic' && (
           <TaskBoard
             key={view.id}

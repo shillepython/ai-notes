@@ -10,6 +10,16 @@ import type { Note, Task, Topic } from '@shared/types'
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Формат даты YYYY-MM-DD')
 const priority = z.enum(['low', 'medium', 'high'])
 const status = z.enum(['todo', 'in_progress', 'done'])
+const localDateTime = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Формат YYYY-MM-DDTHH:mm (местное время)')
+  .describe('Когда напомнить уведомлением, местное время YYYY-MM-DDTHH:mm')
+
+// The model works in local wall-clock time; the store keeps ISO (UTC) instants.
+// A date-time string without an offset is parsed by Date as local time.
+const fromLocal = (value: string): string => new Date(value).toISOString()
+const toLocal = (iso: string | null): string | null =>
+  iso ? new Date(iso).toLocaleString('sv-SE').slice(0, 16).replace(' ', 'T') : null
 
 interface ToolDef<S extends z.ZodType> {
   description: string
@@ -31,6 +41,8 @@ const taskView = (store: Store, t: Task) => ({
   status: t.status,
   priority: t.priority,
   dueDate: t.dueDate,
+  remindAt: toLocal(t.remindAt),
+  reminded: t.remindedAt !== null,
   topic: t.topicId ? (store.getTopic(t.topicId)?.name ?? null) : null,
   completedAt: t.completedAt
 })
@@ -83,6 +95,7 @@ const TOOLS = {
     description:
       'Создаёт одну или несколько задач (дел, которые потом закрывают). Только когда пользователь просит задачу, ' +
       'план, напоминание или «нужно сделать». Если он просит заметку, «запиши» или «сохрани», используй create_note. ' +
+      '«Напомни …» = задача с remindAt: в это время придёт уведомление macOS со звуком. ' +
       'Независимые дела = отдельные задачи; шаги одного дела = чекбоксы `- [ ]` в description этой задачи.',
     schema: z
       .object({
@@ -96,6 +109,7 @@ const TOOLS = {
                   .optional()
                   .describe('Markdown: строка контекста, затем шаги чекбоксами `- [ ] шаг`'),
                 dueDate: isoDate.optional().describe('Срок в формате YYYY-MM-DD'),
+                remindAt: localDateTime.optional(),
                 priority: priority.optional(),
                 topic: topicName.optional().describe('Топик этой задачи, если отличается от общего')
               })
@@ -107,7 +121,7 @@ const TOOLS = {
       .strict(),
     run(store, { tasks, topic }) {
       const newTopics: string[] = []
-      const created = tasks.map(({ topic: own, ...t }) => {
+      const created = tasks.map(({ topic: own, remindAt, ...t }) => {
         const name = own ?? topic
         let topicId: string | null = null
         if (name) {
@@ -115,11 +129,15 @@ const TOOLS = {
           if (res.created) newTopics.push(res.topic.name)
           topicId = res.topic.id
         }
-        return store.createTask({ ...t, topicId })
+        return store.createTask({ ...t, topicId, remindAt: remindAt ? fromLocal(remindAt) : null })
       })
+      const reminders = created.filter((t) => t.remindAt).length
       return {
         result: created.map((t) => taskView(store, t)),
-        summary: `Создано задач: ${created.length} (${created.map((t) => t.title).join(', ')})${createdTopicsNote(newTopics)}`
+        summary:
+          `Создано задач: ${created.length} (${created.map((t) => t.title).join(', ')})` +
+          (reminders ? `; напоминаний: ${reminders}` : '') +
+          createdTopicsNote(newTopics)
       }
     }
   }),
@@ -175,7 +193,7 @@ const TOOLS = {
 
   update_task: tool({
     description:
-      'Меняет поля задачи: название, описание, статус, приоритет, срок. Передавай только то, что меняется. ' +
+      'Меняет поля задачи: название, описание, статус, приоритет, срок, напоминание. Передавай только то, что меняется. ' +
       'Чтобы отметить выполненный шаг, передай описание целиком с этим шагом как `- [x]`.',
     schema: z
       .object({
@@ -185,10 +203,11 @@ const TOOLS = {
         status: status.optional(),
         priority: priority.optional(),
         dueDate: isoDate.nullable().optional().describe('null убирает срок'),
+        remindAt: localDateTime.nullable().optional().describe('Новое время напоминания (местное, YYYY-MM-DDTHH:mm); null убирает'),
         topic: topicName.nullable().optional().describe('Перенести в топик (создастся, если нет); null убирает из топика')
       })
       .strict(),
-    run(store, { id, topic, ...patch }) {
+    run(store, { id, topic, remindAt, ...patch }) {
       requireTask(store, id)
       const newTopics: string[] = []
       let topicId: string | null | undefined
@@ -198,7 +217,11 @@ const TOOLS = {
         if (res.created) newTopics.push(res.topic.name)
         topicId = res.topic.id
       }
-      const task = store.updateTask(id, { ...patch, topicId })
+      const task = store.updateTask(id, {
+        ...patch,
+        topicId,
+        remindAt: remindAt === undefined ? undefined : remindAt && fromLocal(remindAt)
+      })
       return { result: taskView(store, task), summary: `Обновлена задача «${task.title}»${createdTopicsNote(newTopics)}` }
     }
   }),

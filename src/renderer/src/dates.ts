@@ -13,3 +13,18 @@ export const formatDue = (date: string | null): string => {
   if (date === tomorrow) return 'Завтра'
   return new Date(date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** ISO timestamp -> value for <input type="datetime-local"> (local time). */
+export const toLocalInput = (iso: string | null): string => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${toISODate(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** "Сегодня 18:00", "Завтра 9:30", "24 окт. 12:00" */
+export const formatReminder = (iso: string): string => {
+  const d = new Date(iso)
+  return `${formatDue(toISODate(d))} ${d.getHours()}:${pad2(d.getMinutes())}`
+}

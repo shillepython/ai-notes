@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TOPIC_COLORS, type Task, type TaskPriority, type TaskStatus, type Topic } from '@shared/types'
 import { filterTasks, type TaskFilter } from './Sidebar'
-import { formatDue, today } from '../dates'
+import { formatDue, formatReminder, toLocalInput, today } from '../dates'
 import CodePromptButton from './CodePromptButton'
 
 const TITLES: Record<TaskFilter, string> = {
@@ -21,11 +21,16 @@ interface Props {
   /** When set, shows only this topic's open tasks and files new ones into it */
   topicId?: string
   onTopicDeleted?: () => void
+  /** Expands this task, e.g. after its reminder notification was clicked */
+  focus?: { id: string; at: number } | null
 }
 
-export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDeleted }: Props): React.JSX.Element {
+export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDeleted, focus }: Props): React.JSX.Element {
   const [newTitle, setNewTitle] = useState('')
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(focus?.id ?? null)
+  useEffect(() => {
+    if (focus) setOpenId(focus.id)
+  }, [focus])
   const topic = topicId ? topics.find((t) => t.id === topicId) : undefined
   const visible = filterTasks(tasks, filter).filter((t) => !topicId || t.topicId === topicId)
 
@@ -152,6 +157,11 @@ function TaskRow({
           </span>
         )}
         {task.status === 'in_progress' && <span className="badge">в работе</span>}
+        {!done && task.remindAt && !task.remindedAt && (
+          <span className="reminder" title="Напоминание">
+            🔔 {formatReminder(task.remindAt)}
+          </span>
+        )}
         {task.dueDate && <span className={`due ${overdue ? 'overdue' : ''}`}>{formatDue(task.dueDate)}</span>}
       </div>
       {open && <TaskDetails task={task} topics={topics} />}
@@ -181,6 +191,14 @@ function TaskDetails({ task, topics }: { task: Task; topics: Topic[] }): React.J
         <label>
           Срок
           <input type="date" value={task.dueDate ?? ''} onChange={(e) => update({ dueDate: e.target.value || null })} />
+        </label>
+        <label>
+          Напоминание
+          <input
+            type="datetime-local"
+            value={toLocalInput(task.remindAt)}
+            onChange={(e) => update({ remindAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+          />
         </label>
         <label>
           Топик
