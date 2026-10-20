@@ -1,0 +1,132 @@
+:root {
+  --bg: #ffffff;
+  --sidebar: #f5f5f4;
+  --border: #e7e5e4;
+  --text: #1c1917;
+  --muted: #78716c;
+  --hover: #ebe9e7;
+  --active: #e2e0dd;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --high: #ef4444;
+  --medium: #f59e0b;
+  --low: #a8a29e;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #191919;
+    --sidebar: #202020;
+    --border: #2f2f2f;
+    --text: #e7e5e4;
+    --muted: #a3a3a3;
+    --hover: #2a2a2a;
+    --active: #333333;
+    --accent: #60a5fa;
+  }
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+
+.app { display: flex; height: 100%; }
+
+/* Sidebar */
+.sidebar {
+  width: 240px; flex-shrink: 0; background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 0 8px 12px; overflow: hidden;
+}
+.sidebar-drag { height: 44px; flex-shrink: 0; -webkit-app-region: drag; }
+.sidebar-section {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); padding: 14px 8px 4px;
+}
+.sidebar-section.row { display: flex; align-items: center; justify-content: space-between; }
+.icon-btn { width: 22px; height: 22px; border-radius: 5px; font-size: 16px; line-height: 1; color: var(--muted); }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.sidebar-notes { overflow-y: auto; flex: 1; }
+.sidebar-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border-radius: 6px; text-align: left;
+}
+.sidebar-item:hover { background: var(--hover); }
+.sidebar-item.active { background: var(--active); font-weight: 500; }
+.sidebar-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-item .count { font-size: 12px; color: var(--muted); }
+.sidebar-hint { color: var(--muted); padding: 4px 8px; font-size: 13px; }
+
+/* Content */
+.content { flex: 1; overflow-y: auto; min-width: 0; }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.danger-btn { color: var(--danger); padding: 4px 8px; border-radius: 6px; font-size: 13px; }
+.danger-btn:hover { background: var(--hover); }
+
+/* Notes */
+.note { max-width: 820px; margin: 0 auto; padding: 0 48px 80px; }
+.toolbar {
+  position: sticky; top: 0; background: var(--bg); display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; -webkit-app-region: drag; z-index: 1;
+}
+.toolbar > * { -webkit-app-region: no-drag; }
+.toolbar .muted { margin-left: auto; }
+.segmented { display: inline-flex; background: var(--sidebar); border-radius: 7px; padding: 2px; }
+.segmented button { padding: 3px 10px; border-radius: 5px; font-size: 13px; color: var(--muted); }
+.segmented button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.note-title {
+  width: 100%; border: 0; outline: 0; background: none; font-size: 32px; font-weight: 700; padding: 24px 0 8px;
+}
+.note-body {
+  width: 100%; min-height: 60vh; border: 0; outline: 0; resize: none; background: none;
+  font: 15px/1.7 ui-monospace, 'SF Mono', Menlo, monospace;
+}
+.markdown { font-size: 15px; line-height: 1.7; min-height: 60vh; }
+.markdown h1, .markdown h2, .markdown h3 { line-height: 1.3; margin: 1.2em 0 .4em; }
+.markdown code { background: var(--sidebar); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.markdown pre { background: var(--sidebar); padding: 12px; border-radius: 8px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 14px; color: var(--muted); }
+.markdown a { color: var(--accent); }
+
+/* Tasks */
+.tasks { max-width: 760px; margin: 0 auto; padding: 44px 48px 80px; }
+.tasks h1 { font-size: 28px; margin: 0 0 16px; }
+.quick-add input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); outline: 0;
+}
+.quick-add input:focus { border-color: var(--accent); }
+.task-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.task { border-bottom: 1px solid var(--border); }
+.task-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 4px; }
+.task-main { flex: 1; min-width: 0; cursor: pointer; }
+.task-title { font-weight: 500; }
+.task.done .task-title { text-decoration: line-through; color: var(--muted); }
+.task-desc-preview { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.check {
+  width: 18px; height: 18px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--low); flex-shrink: 0;
+  font-size: 11px; line-height: 14px; color: #fff; display: grid; place-items: center;
+}
+.check.prio-high { border-color: var(--high); }
+.check.prio-medium { border-color: var(--medium); }
+.task.done .check { background: var(--low); border-color: var(--low); }
+.due { font-size: 12px; color: var(--muted); white-space: nowrap; margin-top: 2px; }
+.due.overdue { color: var(--danger); }
+.badge { font-size: 11px; background: var(--accent); color: #fff; border-radius: 10px; padding: 1px 7px; margin-top: 2px; }
+.task-details { display: flex; flex-direction: column; gap: 8px; padding: 0 4px 14px 32px; }
+.field {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); outline: 0; resize: vertical;
+}
+.field:focus { border-color: var(--accent); }
+.task-meta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: 13px; color: var(--muted); }
+.task-meta label { display: flex; align-items: center; gap: 6px; }
+.task-meta input, .task-meta select {
+  padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);
+}
+.task-meta .danger-btn { margin-left: auto; }

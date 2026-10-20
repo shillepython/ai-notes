@@ -1,0 +1,13 @@
+appId: com.shillepython.ainotes
+productName: AI Notes
+directories:
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity
+dmg:
+  artifactName: ${name}-${version}.${ext}
