@@ -3,7 +3,11 @@ import type { IconName } from './components/Icon'
 import { today } from './dates'
 
 export type TaskFilter = 'today' | 'upcoming' | 'all' | 'done'
-export type View = { kind: 'tasks'; filter: TaskFilter } | { kind: 'topic'; id: string } | { kind: 'note'; id: string }
+export type View =
+  | { kind: 'tasks'; filter: TaskFilter }
+  | { kind: 'topic'; id: string }
+  | { kind: 'note'; id: string }
+  | { kind: 'trash' }
 
 export const TASK_VIEWS: { filter: TaskFilter; label: string; icon: IconName; shortcut: string }[] = [
   { filter: 'today', label: 'Сегодня', icon: 'sun', shortcut: 'mod+1' },

@@ -15,9 +15,11 @@ import type {
   TaskStatus,
   Topic,
   TopicInput,
-  TopicPatch
+  TopicPatch,
+  TrashItem,
+  TrashKind
 } from '../shared/types'
-import { TOPIC_COLORS } from '../shared/types.ts'
+import { TOPIC_COLORS, trashItemId } from '../shared/types.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS notes (
@@ -50,6 +52,12 @@ CREATE TABLE IF NOT EXISTS topics (
 
 type Row = Record<string, unknown>
 
+/** Tasks whose topic is in the trash read as having no topic until the topic is restored. */
+const TASK_SELECT = `SELECT *, CASE WHEN topic_id IN (SELECT id FROM topics WHERE deleted_at IS NULL) THEN topic_id END
+  AS live_topic_id FROM tasks`
+
+const TABLES: Record<TrashKind, string> = { note: 'notes', task: 'tasks', topic: 'topics' }
+
 const toNote = (r: Row): Note => ({
   id: r.id as string,
   title: r.title as string,
@@ -64,7 +72,7 @@ const toTask = (r: Row): Task => ({
   description: r.description as string,
   status: r.status as TaskStatus,
   priority: r.priority as Task['priority'],
-  topicId: (r.topic_id as string | null) ?? null,
+  topicId: (r.live_topic_id as string | null) ?? null,
   sortOrder: (r.sort_order as number | null) ?? 0,
   dueDate: (r.due_date as string | null) ?? null,
   remindAt: (r.remind_at as string | null) ?? null,
@@ -117,6 +125,11 @@ export class Store extends EventEmitter {
     }
     if (!cols.includes('remind_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN remind_at TEXT')
     if (!cols.includes('reminded_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN reminded_at TEXT')
+    // Soft delete: a set deleted_at means the row is in the trash.
+    for (const table of Object.values(TABLES)) {
+      const tableCols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((c) => c.name)
+      if (!tableCols.includes('deleted_at')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT`)
+    }
   }
 
   close(): void {
@@ -130,12 +143,12 @@ export class Store extends EventEmitter {
   // ---- Notes ----
 
   listNotes(q: NoteQuery = {}): Note[] {
-    const rows = this.db.prepare('SELECT * FROM notes ORDER BY updated_at DESC').all() as Row[]
+    const rows = this.db.prepare('SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY updated_at DESC').all() as Row[]
     return rows.map(toNote).filter((n) => matches(q.query, n.title, n.content))
   }
 
   getNote(id: string): Note | null {
-    const row = this.db.prepare('SELECT * FROM notes WHERE id = ?').get(id) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM notes WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
     return row ? toNote(row) : null
   }
 
@@ -160,10 +173,9 @@ export class Store extends EventEmitter {
     return next
   }
 
+  /** Moves the note to the trash. */
   deleteNote(id: string): boolean {
-    const res = this.db.prepare('DELETE FROM notes WHERE id = ?').run(id)
-    if (res.changes) this.emitChange({ entity: 'note', action: 'deleted', id })
-    return res.changes > 0
+    return this.moveToTrash('note', id)
   }
 
   // ---- Tasks ----
@@ -171,7 +183,7 @@ export class Store extends EventEmitter {
   listTasks(q: TaskQuery = {}): Task[] {
     const rows = this.db
       .prepare(
-        `SELECT * FROM tasks ORDER BY
+        `${TASK_SELECT} WHERE deleted_at IS NULL ORDER BY
            CASE status WHEN 'in_progress' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
            due_date IS NULL, due_date,
            CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
@@ -189,7 +201,7 @@ export class Store extends EventEmitter {
   }
 
   getTask(id: string): Task | null {
-    const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as Row | undefined
+    const row = this.db.prepare(`${TASK_SELECT} WHERE id = ? AND deleted_at IS NULL`).get(id) as Row | undefined
     return row ? toTask(row) : null
   }
 
@@ -268,10 +280,9 @@ export class Store extends EventEmitter {
     return this.updateTask(id, { status: 'todo' })
   }
 
+  /** Moves the task to the trash. */
   deleteTask(id: string): boolean {
-    const res = this.db.prepare('DELETE FROM tasks WHERE id = ?').run(id)
-    if (res.changes) this.emitChange({ entity: 'task', action: 'deleted', id })
-    return res.changes > 0
+    return this.moveToTrash('task', id)
   }
 
   // ---- Reminders ----
@@ -294,7 +305,9 @@ export class Store extends EventEmitter {
 
   private pendingReminders(): Task[] {
     const rows = this.db
-      .prepare(`SELECT * FROM tasks WHERE remind_at IS NOT NULL AND reminded_at IS NULL AND status != 'done'`)
+      .prepare(
+        `${TASK_SELECT} WHERE remind_at IS NOT NULL AND reminded_at IS NULL AND status != 'done' AND deleted_at IS NULL`
+      )
       .all() as Row[]
     return rows.map(toTask).sort((a, b) => Date.parse(a.remindAt!) - Date.parse(b.remindAt!))
   }
@@ -308,12 +321,12 @@ export class Store extends EventEmitter {
   // ---- Topics ----
 
   listTopics(): Topic[] {
-    const rows = this.db.prepare('SELECT * FROM topics').all() as Row[]
+    const rows = this.db.prepare('SELECT * FROM topics WHERE deleted_at IS NULL').all() as Row[]
     return rows.map(toTopic).sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   }
 
   getTopic(id: string): Topic | null {
-    const row = this.db.prepare('SELECT * FROM topics WHERE id = ?').get(id) as Row | undefined
+    const row = this.db.prepare('SELECT * FROM topics WHERE id = ? AND deleted_at IS NULL').get(id) as Row | undefined
     return row ? toTopic(row) : null
   }
 
@@ -352,15 +365,85 @@ export class Store extends EventEmitter {
     return next
   }
 
-  /** Deletes the topic; its tasks are kept and lose their topic. */
+  /** Moves the topic to the trash; its tasks are kept and show without a topic until it is restored. */
   deleteTopic(id: string): boolean {
-    const res = this.db.prepare('DELETE FROM topics WHERE id = ?').run(id)
+    return this.moveToTrash('topic', id)
+  }
+
+  // ---- Trash ----
+
+  /** Everything in the trash, most recently deleted first. */
+  listTrash(): TrashItem[] {
+    const rows = (table: string): Row[] =>
+      this.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NOT NULL`).all() as Row[]
+    const items: TrashItem[] = [
+      ...rows('notes').map((r): TrashItem => ({ kind: 'note', deletedAt: r.deleted_at as string, note: toNote(r) })),
+      ...(this.db.prepare(`${TASK_SELECT} WHERE deleted_at IS NOT NULL`).all() as Row[]).map(
+        (r): TrashItem => ({ kind: 'task', deletedAt: r.deleted_at as string, task: toTask(r) })
+      ),
+      ...rows('topics').map(
+        (r): TrashItem => ({
+          kind: 'topic',
+          deletedAt: r.deleted_at as string,
+          topic: toTopic(r),
+          taskCount: this.topicTaskIds(r.id as string).length
+        })
+      )
+    ]
+    return items.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))
+  }
+
+  /** Brings an item back from the trash. A restored topic gets its tasks back. */
+  restoreFromTrash(kind: TrashKind, id: string): boolean {
+    if (kind === 'topic') {
+      const row = this.db.prepare('SELECT name FROM topics WHERE id = ? AND deleted_at IS NOT NULL').get(id) as
+        | Row
+        | undefined
+      if (!row) return false
+      // A topic with the same name may have been created meanwhile; names must stay unique.
+      let name = row.name as string
+      for (let n = 2; this.findTopicByName(name); n++) name = `${row.name} (${n})`
+      this.db.prepare('UPDATE topics SET name = ? WHERE id = ?').run(name, id)
+    }
+    const res = this.db.prepare(`UPDATE ${TABLES[kind]} SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`).run(id)
     if (!res.changes) return false
-    const freed = this.db.prepare('SELECT id FROM tasks WHERE topic_id = ?').all(id) as Row[]
-    this.db.prepare('UPDATE tasks SET topic_id = NULL WHERE topic_id = ?').run(id)
-    for (const r of freed) this.emitChange({ entity: 'task', action: 'updated', id: r.id as string })
-    this.emitChange({ entity: 'topic', action: 'deleted', id })
+    if (kind === 'topic') this.emitTasksUpdated(this.topicTaskIds(id))
+    this.emitChange({ entity: kind, action: 'created', id })
     return true
+  }
+
+  /** Erases an item that is in the trash. Tasks of an erased topic stay, without a topic. */
+  deleteForever(kind: TrashKind, id: string): boolean {
+    const res = this.db.prepare(`DELETE FROM ${TABLES[kind]} WHERE id = ? AND deleted_at IS NOT NULL`).run(id)
+    if (!res.changes) return false
+    if (kind === 'topic') this.db.prepare('UPDATE tasks SET topic_id = NULL WHERE topic_id = ?').run(id)
+    this.emitChange({ entity: kind, action: 'purged', id })
+    return true
+  }
+
+  /** Erases everything in the trash. Returns how many items were erased. */
+  emptyTrash(): number {
+    const items = this.listTrash()
+    for (const item of items) this.deleteForever(item.kind, trashItemId(item))
+    return items.length
+  }
+
+  private moveToTrash(kind: TrashKind, id: string): boolean {
+    const res = this.db.prepare(`UPDATE ${TABLES[kind]} SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`).run(now(), id)
+    if (!res.changes) return false
+    if (kind === 'topic') this.emitTasksUpdated(this.topicTaskIds(id))
+    this.emitChange({ entity: kind, action: 'deleted', id })
+    return true
+  }
+
+  /** Ids of the live tasks filed under a topic, whether or not the topic is in the trash. */
+  private topicTaskIds(topicId: string): string[] {
+    const rows = this.db.prepare('SELECT id FROM tasks WHERE topic_id = ? AND deleted_at IS NULL').all(topicId) as Row[]
+    return rows.map((r) => r.id as string)
+  }
+
+  private emitTasksUpdated(ids: string[]): void {
+    for (const id of ids) this.emitChange({ entity: 'task', action: 'updated', id })
   }
 }
 

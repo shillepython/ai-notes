@@ -119,3 +119,14 @@ test('create_tasks files into the open topic unless another topic or null is giv
   s.deleteTopic(work.id)
   assert.equal(executeTool(s, 'create_tasks', { tasks: [{ title: 'После удаления' }] }, ctx).isError, false)
 })
+
+test('delete tools move to the trash and restore_from_trash brings items back', () => {
+  const s = fresh()
+  const note = s.createNote({ title: 'Рецепт' })
+  assert.equal(executeTool(s, 'delete_note', { id: note.id }).isError, false)
+  const trash = JSON.parse(executeTool(s, 'list_trash', {}).content)
+  assert.deepEqual(trash.map((i: { kind: string; id: string }) => [i.kind, i.id]), [['note', note.id]])
+  assert.equal(executeTool(s, 'restore_from_trash', { kind: 'note', id: note.id }).isError, false)
+  assert.equal(s.getNote(note.id)!.title, 'Рецепт')
+  assert.equal(executeTool(s, 'restore_from_trash', { kind: 'note', id: note.id }).isError, true)
+})

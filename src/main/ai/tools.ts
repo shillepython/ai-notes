@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import type { Store } from '../store'
 import type { Note, Task, Topic } from '@shared/types'
+import { trashItemId } from '../../shared/types.ts'
 
 // Tools the assistant can call. Each one maps onto the data service in
 // ../store, so every change the AI makes goes through the same code path
@@ -240,12 +241,13 @@ const TOOLS = {
   }),
 
   delete_task: tool({
-    description: 'Удаляет задачу навсегда. Только когда пользователь явно просит удалить, а не закрыть.',
+    description:
+      'Перемещает задачу в корзину (её можно восстановить). Только когда пользователь явно просит удалить, а не закрыть.',
     schema: z.object({ id: z.string() }).strict(),
     run(store, { id }) {
       const task = requireTask(store, id)
       store.deleteTask(id)
-      return { result: { deleted: id }, summary: `Удалена задача «${task.title}»` }
+      return { result: { deleted: id }, summary: `Задача «${task.title}» в корзине` }
     }
   }),
 
@@ -297,12 +299,14 @@ const TOOLS = {
   }),
 
   delete_topic: tool({
-    description: 'Удаляет топик. Задачи из него не удаляются, а остаются без топика. Только по явной просьбе.',
+    description:
+      'Перемещает топик в корзину. Задачи из него не удаляются, а остаются без топика, пока топик не восстановят. ' +
+      'Только по явной просьбе.',
     schema: z.object({ id: z.string() }).strict(),
     run(store, { id }) {
       const topic = requireTopic(store, id)
       store.deleteTopic(id)
-      return { result: { deleted: id }, summary: `Удалён топик «${topic.name}»` }
+      return { result: { deleted: id }, summary: `Топик «${topic.name}» в корзине` }
     }
   }),
 
@@ -349,12 +353,40 @@ const TOOLS = {
   }),
 
   delete_note: tool({
-    description: 'Удаляет заметку навсегда. Только по явной просьбе пользователя.',
+    description: 'Перемещает заметку в корзину (её можно восстановить). Только по явной просьбе пользователя.',
     schema: z.object({ id: z.string() }).strict(),
     run(store, { id }) {
       const note = requireNote(store, id)
       store.deleteNote(id)
-      return { result: { deleted: id }, summary: `Удалена заметка «${note.title}»` }
+      return { result: { deleted: id }, summary: `Заметка «${note.title}» в корзине` }
+    }
+  }),
+
+  list_trash: tool({
+    description:
+      'Содержимое корзины: удалённые задачи, заметки и топики. Используй, когда просят вернуть удалённое ' +
+      'или спрашивают, что в корзине.',
+    schema: z.object({}).strict(),
+    run(store) {
+      const items = store.listTrash().map((item) => ({
+        kind: item.kind,
+        id: trashItemId(item),
+        title: item.kind === 'note' ? item.note.title : item.kind === 'task' ? item.task.title : item.topic.name,
+        deletedAt: toLocal(item.deletedAt)
+      }))
+      return { result: items, summary: `В корзине: ${items.length}` }
+    }
+  }),
+
+  restore_from_trash: tool({
+    description: 'Возвращает задачу, заметку или топик из корзины. id и kind бери из list_trash.',
+    schema: z.object({ kind: z.enum(['note', 'task', 'topic']), id: z.string() }).strict(),
+    run(store, { kind, id }) {
+      const item = store.listTrash().find((i) => i.kind === kind && trashItemId(i) === id)
+      if (!item) throw new Error(`В корзине нет ${kind} ${id}. Посмотри list_trash.`)
+      store.restoreFromTrash(kind, id)
+      const title = item.kind === 'note' ? item.note.title : item.kind === 'task' ? item.task.title : item.topic.name
+      return { result: { restored: id }, summary: `Восстановлено из корзины: «${title}»` }
     }
   }),
 
