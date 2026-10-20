@@ -142,6 +142,11 @@
   box-shadow: var(--shadow-md);
 }
 
+/* Without this, flex items shrink when the list overflows and long replies spill out of their bubble. */
+.assistant__list > * {
+  flex-shrink: 0;
+}
+
 .assistant__msg {
   padding: 9px 13px;
   border-radius: 16px;
@@ -164,6 +169,17 @@
   border-bottom-left-radius: 5px;
   font-size: 14px;
   min-height: 0;
+}
+/* Reset the note preview's .markdown sizing (min-height, top padding, loose line height). */
+.assistant__msg.markdown {
+  min-height: 0;
+  padding-top: 9px;
+  line-height: 1.5;
+}
+.assistant__msg.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .assistant__msg.markdown p {
   margin: 0 0 0.5em;

@@ -74,6 +74,11 @@ export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDelet
     setSelectedId(null)
   }, [filter, topicId])
 
+  // Opening details replaces inline rename.
+  useEffect(() => {
+    if (openId) setEditingId(null)
+  }, [openId])
+
   const complete = (task: Task): void => {
     if (task.status === 'done') {
       void window.api.tasks.reopen(task.id)
@@ -170,7 +175,14 @@ export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDelet
       } else if (!selected) return
       else if (matches(e, 'enter')) setOpenId(openId === selected.id ? null : selected.id)
       else if (matches(e, 'space') || matches(e, 'x')) complete(selected)
-      else if (matches(e, 'e')) setEditingId(selected.id)
+      else if (matches(e, 'e')) {
+        // An open task already shows an editable title in its details; edit that one.
+        const detailsTitle = document.querySelector<HTMLInputElement>(`#task-${selected.id} .details-title`)
+        if (openId === selected.id && detailsTitle) {
+          detailsTitle.focus()
+          detailsTitle.select()
+        } else setEditingId(selected.id)
+      }
       else if (matches(e, 'backspace') || matches(e, 'delete')) void remove(selected)
       else return
       e.preventDefault()
@@ -444,7 +456,7 @@ function TaskRow(p: RowProps): React.JSX.Element {
           <Icon name="check" size={12} />
         </button>
         <div className="task-main" onClick={p.editing ? undefined : p.onToggleOpen}>
-          {p.editing ? (
+          {p.editing && !p.open ? (
             <InlineTitle task={task} onDone={() => p.onEdit(false)} />
           ) : (
             <div className="task-title">{task.title}</div>
