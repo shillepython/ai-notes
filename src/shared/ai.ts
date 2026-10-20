@@ -49,4 +49,6 @@ export interface AiApi {
   cancel(): Promise<void>
   resetConversation(): Promise<void>
   onEvent(cb: (event: AiEvent) => void): () => void
+  /** Generates a coding-assistant prompt from a task (with unsaved edits) and copies it to the clipboard. */
+  codePrompt(task: { title: string; description: string; dueDate: string | null; priority: string }): Promise<{ ok: true; prompt: string } | { ok: false; error: string }>
 }

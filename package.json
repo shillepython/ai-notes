@@ -12,7 +12,7 @@
     "prestart": "node scripts/ensure-electron.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "node --experimental-strip-types --test src/main/store.test.ts src/main/ai/tools.test.ts",
+    "test": "node --experimental-strip-types --test src/main/store.test.ts src/main/ai/tools.test.ts src/main/ai/prompts.test.ts",
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {

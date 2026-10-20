@@ -5,6 +5,7 @@ import { addDays, formatDue, nextWeek, today } from '../dates'
 import { isTyping, matches, onUi } from '../hotkeys'
 import { Icon, Kbd } from './Icon'
 import Collapse from './Collapse'
+import CodePromptButton from './CodePromptButton'
 import { toast } from './Toasts'
 import { TopicMark } from './Sidebar'
 
@@ -642,7 +643,8 @@ function TaskDetails({
         <button className="ghost-btn danger" onClick={onDelete}>
           <Icon name="trash" size={13} /> Удалить
         </button>
-        <span className="muted small">
+        <CodePromptButton task={task} title={title} description={description} />
+        <span className="muted small details-esc">
           <Kbd keys="esc" /> закрыть
         </span>
       </div>

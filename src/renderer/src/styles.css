@@ -381,6 +381,7 @@ body.resizing .assistant-wrap { transition: none; }
   border-top: 1px solid var(--border);
 }
 .details-footer .ghost-btn { margin-left: -10px; }
+.details-footer .details-esc { margin-left: auto; }
 
 .keys-hint {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px; margin-top: 40px;
