@@ -10,6 +10,7 @@ export const aiApi: AiApi = {
   send: (text) => ipcRenderer.invoke('ai:send', text),
   cancel: () => ipcRenderer.invoke('ai:cancel'),
   resetConversation: () => ipcRenderer.invoke('ai:reset'),
+  codePrompt: (task) => ipcRenderer.invoke('ai:codePrompt', task),
   onEvent: (cb) => {
     const listener = (_e: IpcRendererEvent, event: AiEvent): void => cb(event)
     ipcRenderer.on('ai:event', listener)

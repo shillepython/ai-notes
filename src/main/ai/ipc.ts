@@ -1,12 +1,14 @@
-import { ipcMain, type WebContents } from 'electron'
+import { clipboard, ipcMain, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { getStore } from '../store'
 import type { AiEvent, AiSettingsPatch } from '@shared/ai'
 import { Conversation, describeError, verifyKey } from './agent'
+import { generateCodePrompt } from './codePrompt'
+import type { CodePromptTask } from './prompts'
 import { clearApiKey, getApiKey, getPrefs, getSettings, saveApiKey, updatePrefs } from './settings'
 
 // IPC for the assistant. Channels: ai:getSettings, ai:setKey, ai:clearKey,
-// ai:updateSettings, ai:send, ai:cancel, ai:reset; events go out on 'ai:event'.
+// ai:updateSettings, ai:send, ai:cancel, ai:reset, ai:codePrompt; events go out on 'ai:event'.
 
 const conversation = new Conversation()
 let running: AbortController | null = null
@@ -77,6 +79,26 @@ export function registerAiIpc(): void {
   ipcMain.handle('ai:cancel', () => {
     running?.abort()
     running = null
+  })
+
+  ipcMain.handle('ai:codePrompt', async (_e, raw: unknown) => {
+    const input = (raw ?? {}) as Partial<CodePromptTask>
+    if (typeof input.title !== 'string' || !input.title.trim()) return { ok: false, error: 'У задачи нет названия' }
+    const task: CodePromptTask = {
+      title: input.title,
+      description: typeof input.description === 'string' ? input.description : '',
+      dueDate: typeof input.dueDate === 'string' ? input.dueDate : null,
+      priority: typeof input.priority === 'string' ? input.priority : 'medium'
+    }
+    const apiKey = getApiKey()
+    if (!apiKey) return { ok: false, error: 'Добавь API-ключ в настройках ассистента.' }
+    try {
+      const prompt = await generateCodePrompt(task, { apiKey, ...getPrefs() })
+      clipboard.writeText(prompt)
+      return { ok: true, prompt }
+    } catch (err) {
+      return { ok: false, error: describeError(err) }
+    }
   })
 
   ipcMain.handle('ai:reset', () => {
