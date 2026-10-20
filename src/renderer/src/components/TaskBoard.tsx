@@ -101,10 +101,9 @@ export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDelet
     setSelectedId(ordered[idx + 1]?.id ?? ordered[idx - 1]?.id ?? null)
     if (openId === task.id) setOpenId(null)
     await window.api.tasks.delete(task.id)
-    const { title, description, priority, dueDate, status, topicId } = task
-    toast('Задача удалена', {
+    toast('Задача в корзине', {
       label: 'Отменить',
-      run: () => void window.api.tasks.create({ title, description, priority, dueDate, status, topicId })
+      run: () => void window.api.trash.restore('task', task.id)
     })
   }
 
@@ -200,7 +199,7 @@ export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDelet
     <div className="tasks view-enter">
       <header className="page-header">
         {topic ? (
-          <TopicHeader topic={topic} tasks={tasks} onDeleted={onTopicDeleted} onRestored={onTopicRestored} />
+          <TopicHeader topic={topic} onDeleted={onTopicDeleted} onRestored={onTopicRestored} />
         ) : (
           <h1>
             <Icon name={meta.icon} size={26} className={`view-icon view-icon--${filter}`} />
@@ -725,12 +724,10 @@ function TopicSelect({
 
 function TopicHeader({
   topic,
-  tasks,
   onDeleted,
   onRestored
 }: {
   topic: Topic
-  tasks: Task[]
   onDeleted?: () => void
   onRestored?: (id: string) => void
 }): React.JSX.Element {
@@ -750,16 +747,13 @@ function TopicHeader({
   }
 
   const remove = async (): Promise<void> => {
-    const taskIds = tasks.filter((t) => t.topicId === topic.id).map((t) => t.id)
-    const { name, color, icon } = topic
     await window.api.topics.delete(topic.id)
     onDeleted?.()
-    toast(`Топик «${name}» удалён, задачи остались`, {
+    toast(`Топик «${topic.name}» в корзине, задачи остались`, {
       label: 'Отменить',
       run: async () => {
-        const restored = await window.api.topics.create({ name, color, icon })
-        await Promise.all(taskIds.map((id) => window.api.tasks.update(id, { topicId: restored.id })))
-        onRestored?.(restored.id)
+        await window.api.trash.restore('topic', topic.id)
+        onRestored?.(topic.id)
       }
     })
   }
@@ -794,7 +788,7 @@ function TopicHeader({
             onClick={() => window.api.topics.update(topic.id, { color: c })}
           />
         ))}
-        <button className="ghost-btn danger" title="Задачи останутся, но без топика" onClick={remove}>
+        <button className="ghost-btn danger" title="В корзину. Задачи останутся, но без топика" onClick={remove}>
           <Icon name="trash" size={13} /> Удалить топик
         </button>
       </div>

@@ -115,3 +115,43 @@ test('reminders: due ones fire once, changing the time re-arms, done tasks are s
   assert.equal(s.dueReminders(new Date('2026-10-23T00:00:00Z')).length, 1)
   assert.throws(() => s.updateTask(a.id, { remindAt: 'завтра' }))
 })
+
+test('trash: deleting moves to the trash, restore brings it back, delete forever erases', () => {
+  const s = fresh()
+  const note = s.createNote({ title: 'Идеи' })
+  const task = s.createTask({ title: 'Позвонить' })
+  assert.equal(s.deleteNote(note.id), true)
+  assert.equal(s.deleteTask(task.id), true)
+  assert.equal(s.getNote(note.id), null)
+  assert.equal(s.listTasks().length, 0)
+  assert.deepEqual(s.listTrash().map((i) => i.kind).sort(), ['note', 'task'])
+
+  assert.equal(s.restoreFromTrash('task', task.id), true)
+  assert.equal(s.getTask(task.id)!.title, 'Позвонить')
+  assert.equal(s.deleteForever('note', note.id), true)
+  assert.equal(s.listTrash().length, 0)
+  assert.equal(s.restoreFromTrash('note', note.id), false)
+  // Only trashed items can be erased.
+  assert.equal(s.deleteForever('task', task.id), false)
+})
+
+test('trash: a trashed topic hides from its tasks and gives them back on restore', () => {
+  const s = fresh()
+  const topic = s.createTopic({ name: 'Работа' })
+  const task = s.createTask({ title: 'Отчёт', topicId: topic.id })
+  s.deleteTopic(topic.id)
+  assert.equal(s.getTask(task.id)!.topicId, null)
+  assert.equal(s.listTasks({ topicId: null }).length, 1)
+  const [item] = s.listTrash()
+  assert.equal(item.kind === 'topic' && item.taskCount, 1)
+
+  // The name was reused meanwhile, so the restored topic gets a suffix.
+  s.createTopic({ name: 'Работа' })
+  s.restoreFromTrash('topic', topic.id)
+  assert.equal(s.getTask(task.id)!.topicId, topic.id)
+  assert.equal(s.getTopic(topic.id)!.name, 'Работа (2)')
+
+  s.deleteTopic(topic.id)
+  assert.equal(s.emptyTrash(), 1)
+  assert.equal(s.getTask(task.id)!.topicId, null)
+})

@@ -98,4 +98,21 @@ export interface CompleteTaskOptions {
   comment?: string
 }
 
-export type DataChange = { entity: 'note' | 'task' | 'topic'; action: 'created' | 'updated' | 'deleted'; id: string }
+/** 'deleted' = moved to the trash, 'created' also covers a restore, 'purged' = erased from the trash. */
+export type DataChange = {
+  entity: 'note' | 'task' | 'topic'
+  action: 'created' | 'updated' | 'deleted' | 'purged'
+  id: string
+}
+
+export type TrashKind = 'note' | 'task' | 'topic'
+
+/** Something deleted by the user or the assistant, kept until restored or erased. */
+export type TrashItem = { deletedAt: string } & (
+  | { kind: 'note'; note: Note }
+  | { kind: 'task'; task: Task }
+  | { kind: 'topic'; topic: Topic; taskCount: number }
+)
+
+export const trashItemId = (item: TrashItem): string =>
+  item.kind === 'note' ? item.note.id : item.kind === 'task' ? item.task.id : item.topic.id

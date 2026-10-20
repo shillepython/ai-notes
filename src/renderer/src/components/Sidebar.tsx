@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Note, Task, Topic } from '@shared/types'
+import type { Note, Task, Topic, TrashItem } from '@shared/types'
 import { TASK_VIEWS, filterTasks, type View } from '../taskViews'
 import { Icon, Kbd } from './Icon'
 
@@ -7,13 +7,14 @@ interface Props {
   notes: Note[]
   tasks: Task[]
   topics: Topic[]
+  trash: TrashItem[]
   view: View
   onSelect: (v: View) => void
   onCreateNote: () => void
   onOpenPalette: () => void
 }
 
-export default function Sidebar({ notes, tasks, topics, view, onSelect, onCreateNote, onOpenPalette }: Props): React.JSX.Element {
+export default function Sidebar({ notes, tasks, topics, trash, view, onSelect, onCreateNote, onOpenPalette }: Props): React.JSX.Element {
   const [newTopic, setNewTopic] = useState<string | null>(null)
   const open = filterTasks(tasks, 'all')
 
@@ -115,6 +116,17 @@ export default function Sidebar({ notes, tasks, topics, view, onSelect, onCreate
             <span className="label">{n.title || 'Без названия'}</span>
           </button>
         ))}
+      </div>
+
+      <div className="sidebar-footer">
+        <button
+          className={`sidebar-item ${view.kind === 'trash' ? 'active' : ''}`}
+          onClick={() => onSelect({ kind: 'trash' })}
+        >
+          <Icon name="trash" className="muted-icon" />
+          <span className="label">Корзина</span>
+          {trash.length > 0 && <span className="count">{trash.length}</span>}
+        </button>
       </div>
     </nav>
   )

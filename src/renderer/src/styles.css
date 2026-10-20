@@ -192,6 +192,9 @@ body.resizing .assistant-wrap { transition: none; }
 .view-icon--upcoming { color: #e5484d; }
 .view-icon--all { color: var(--accent); }
 .view-icon--done { color: var(--success); }
+.view-icon--trash { color: var(--muted); }
+
+.sidebar-footer { margin: 0 -10px; padding: 6px 10px 10px; border-top: 1px solid var(--border); }
 
 .topic-dot { display: inline-block; width: 10px; height: 10px; margin: 0 3px; border-radius: 50%; flex-shrink: 0; background: var(--topic, var(--faint)); }
 .topic-emoji { display: inline-block; width: 16px; text-align: center; font-size: 14px; line-height: 1; flex-shrink: 0; }
@@ -397,6 +400,23 @@ body.resizing .assistant-wrap { transition: none; }
 }
 .empty-title { font-size: 16px; font-weight: 600; }
 .empty-hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+/* ───────────── Trash ───────────── */
+.trash-sub { align-items: center; }
+.trash-sub .ghost-btn { margin-left: auto; margin-right: -10px; }
+.trash-sub .ghost-btn.confirm { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.trash-list { display: flex; flex-direction: column; gap: 2px; }
+.trash-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px;
+  transition: background 0.15s; animation: fade-in 0.25s var(--ease);
+}
+.trash-item:hover { background: var(--hover); }
+.trash-mark { display: grid; place-items: center; width: 18px; color: var(--faint); }
+.trash-text { flex: 1; min-width: 0; }
+.trash-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-meta { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.trash-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.15s; }
+.trash-item:hover .trash-actions, .trash-actions:focus-within { opacity: 1; }
 
 /* ───────────── Notes ───────────── */
 .note { max-width: 780px; margin: 0 auto; padding: 0 56px 120px; }

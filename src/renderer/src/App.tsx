@@ -7,6 +7,7 @@ import { emitUi, matches } from './hotkeys'
 import Sidebar from './components/Sidebar'
 import NoteEditor from './components/NoteEditor'
 import TaskBoard from './components/TaskBoard'
+import TrashView from './components/TrashView'
 import AssistantPanel from './components/AssistantPanel'
 import CommandPalette, { type Command } from './components/CommandPalette'
 import Toasts, { toast } from './components/Toasts'
@@ -33,7 +34,7 @@ function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean
 }
 
 export default function App(): React.JSX.Element {
-  const { notes, tasks, topics } = useData()
+  const { notes, tasks, topics, trash } = useData()
   const [view, setView] = useState<View>({ kind: 'tasks', filter: 'today' })
   const [sidebarOpen, setSidebarOpen] = usePersistentFlag('ui.sidebar', true)
   const [assistantOpen, setAssistantOpen] = usePersistentFlag('ui.assistant', true)
@@ -77,7 +78,7 @@ export default function App(): React.JSX.Element {
   }
 
   const newTask = (): void => {
-    if (view.kind === 'note' || (view.kind === 'tasks' && view.filter === 'done')) setView({ kind: 'tasks', filter: 'today' })
+    if (view.kind === 'note' || view.kind === 'trash' || (view.kind === 'tasks' && view.filter === 'done')) setView({ kind: 'tasks', filter: 'today' })
     // After the view switch has rendered the quick-add field.
     setTimeout(() => emitUi('quick-add:focus'), 30)
   }
@@ -119,7 +120,8 @@ export default function App(): React.JSX.Element {
         icon: 'panelRight',
         shortcut: 'mod+.',
         run: () => setAssistantOpen((v) => !v)
-      }
+      },
+      { id: 'trash', group: 'Перейти', label: 'Корзина', icon: 'trash', keywords: 'удалённые', run: () => setView({ kind: 'trash' }) }
     ],
     [sidebarOpen, assistantOpen, view]
   )
@@ -141,7 +143,7 @@ export default function App(): React.JSX.Element {
         ? { kind: 'topic', topicId: view.id }
         : view.kind === 'note'
           ? { kind: 'note', noteId: view.id }
-          : { kind: 'tasks', filter: view.filter }
+          : { kind: 'tasks', filter: view.kind === 'trash' ? 'trash' : view.filter }
     )
   }, [view])
 
@@ -168,7 +170,7 @@ export default function App(): React.JSX.Element {
   })
 
   const currentNote = view.kind === 'note' ? notes.find((n) => n.id === view.id) : undefined
-  const viewKey = view.kind === 'tasks' ? view.filter : view.id
+  const viewKey = view.kind === 'tasks' ? view.filter : view.kind === 'trash' ? 'trash' : view.id
 
   return (
     <div className={`app ${sidebarOpen ? '' : 'sidebar-hidden'} ${assistantOpen ? '' : 'assistant-hidden'}`}>
@@ -177,6 +179,7 @@ export default function App(): React.JSX.Element {
           notes={notes}
           tasks={tasks}
           topics={topics}
+          trash={trash}
           view={view}
           onSelect={setView}
           onCreateNote={createNote}
@@ -216,6 +219,7 @@ export default function App(): React.JSX.Element {
               onTopicRestored={(id) => setView({ kind: 'topic', id })}
             />
           )}
+          {view.kind === 'trash' && <TrashView items={trash} />}
           {view.kind === 'note' &&
             (currentNote ? (
               <NoteEditor

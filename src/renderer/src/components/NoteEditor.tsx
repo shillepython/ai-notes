@@ -58,11 +58,11 @@ export default function NoteEditor({ note, onDeleted, onRestored }: Props): Reac
   const remove = async (): Promise<void> => {
     await window.api.notes.delete(note.id)
     onDeleted()
-    toast(`Заметка «${title || 'Без названия'}» удалена`, {
+    toast(`Заметка «${title || 'Без названия'}» в корзине`, {
       label: 'Отменить',
       run: async () => {
-        const restored = await window.api.notes.create({ title, content })
-        onRestored(restored.id)
+        await window.api.trash.restore('note', note.id)
+        onRestored(note.id)
       }
     })
   }
