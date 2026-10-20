@@ -1,0 +1,9 @@
+/* Code prompt button in task details */
+.code-prompt { display: inline-flex; align-items: center; gap: 8px; }
+.code-prompt-btn {
+  padding: 4px 10px; border-radius: 6px; font-size: 13px; color: var(--accent);
+  border: 1px solid var(--border);
+}
+.code-prompt-btn:hover:not(:disabled) { background: var(--hover); }
+.code-prompt-btn:disabled { opacity: 0.6; cursor: default; }
+.code-prompt-error { color: var(--danger); font-size: 12px; }

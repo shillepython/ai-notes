@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { TOPIC_COLORS, type Task, type TaskPriority, type TaskStatus, type Topic } from '@shared/types'
 import { filterTasks, type TaskFilter } from './Sidebar'
 import { formatDue, today } from '../dates'
+import CodePromptButton from './CodePromptButton'
 
 const TITLES: Record<TaskFilter, string> = {
   today: 'Сегодня',
@@ -213,6 +214,7 @@ function TaskDetails({ task, topics }: { task: Task; topics: Topic[] }): React.J
             ))}
           </select>
         </label>
+        <CodePromptButton task={task} title={title} description={description} />
         <button className="danger-btn" onClick={() => window.api.tasks.delete(task.id)}>
           Удалить
         </button>
