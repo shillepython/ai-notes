@@ -22,3 +22,18 @@ export const nextWeek = (): string => {
   d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7))
   return toISODate(d)
 }
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+/** ISO timestamp -> value for <input type="datetime-local"> (local time). */
+export const toLocalInput = (iso: string | null): string => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${toISODate(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** "Сегодня 18:00", "Завтра 9:30", "24 окт. 12:00" */
+export const formatReminder = (iso: string): string => {
+  const d = new Date(iso)
+  return `${formatDue(toISODate(d))} ${d.getHours()}:${pad2(d.getMinutes())}`
+}

@@ -124,6 +124,16 @@ export default function App(): React.JSX.Element {
     [sidebarOpen, assistantOpen, view]
   )
 
+  // Clicking a reminder notification opens its task.
+  useEffect(
+    () =>
+      window.api.onReminderOpen((id) => {
+        setView({ kind: 'tasks', filter: 'all' })
+        setTimeout(() => window.dispatchEvent(new CustomEvent('ui:open-task', { detail: id })), 60)
+      }),
+    []
+  )
+
   // Global shortcuts. Letters match physical keys, so they work in the Russian layout too.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

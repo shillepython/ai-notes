@@ -78,3 +78,21 @@ test('create_tasks with a topic name creates the topic once and files tasks into
   assert.equal(executeTool(s, 'delete_topic', { id: topics[1].id }).isError, false)
   assert.equal(s.listTasks().length, 4)
 })
+
+test('reminders: local times round-trip and update_task moves or clears them', () => {
+  const s = fresh()
+  const res = executeTool(s, 'create_tasks', {
+    tasks: [{ title: 'Позвонить маме', remindAt: '2026-10-21T18:00', dueDate: '2026-10-21' }]
+  })
+  assert.equal(res.isError, false)
+  assert.match(res.summary, /напоминаний: 1/)
+  const [view] = JSON.parse(res.content)
+  assert.equal(view.remindAt, '2026-10-21T18:00')
+  assert.equal(s.getTask(view.id)!.remindAt, new Date('2026-10-21T18:00').toISOString())
+
+  const moved = JSON.parse(executeTool(s, 'update_task', { id: view.id, remindAt: '2026-10-22T09:30' }).content)
+  assert.equal(moved.remindAt, '2026-10-22T09:30')
+  executeTool(s, 'update_task', { id: view.id, remindAt: null })
+  assert.equal(s.getTask(view.id)!.remindAt, null)
+  assert.equal(executeTool(s, 'create_tasks', { tasks: [{ title: 'x', remindAt: 'в 18:00' }] }).isError, true)
+})

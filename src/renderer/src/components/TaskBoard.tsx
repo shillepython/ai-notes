@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { TOPIC_COLORS, type Task, type TaskPatch, type TaskPriority, type TaskStatus, type Topic } from '@shared/types'
 import { TASK_VIEWS, filterTasks, groupTasks, pluralTasks, type TaskFilter, type TaskGroup } from '../taskViews'
-import { addDays, formatDue, nextWeek, today } from '../dates'
+import { addDays, formatDue, formatReminder, nextWeek, toLocalInput, today } from '../dates'
 import { isTyping, matches, onUi } from '../hotkeys'
 import { Icon, Kbd } from './Icon'
 import Collapse from './Collapse'
@@ -460,6 +460,12 @@ function TaskRow(p: RowProps): React.JSX.Element {
             </span>
           )}
           {task.status === 'in_progress' && <span className="badge">в работе</span>}
+          {!done && task.remindAt && !task.remindedAt && (
+            <span className="reminder" title="Напоминание">
+              <Icon name="bell" size={12} />
+              {formatReminder(task.remindAt)}
+            </span>
+          )}
           {task.dueDate && p.showDue && (
             <span className={`due ${overdue ? 'overdue' : ''}`}>
               <Icon name="calendar" size={12} />
@@ -590,6 +596,23 @@ function TaskDetails({
           />
           {task.dueDate && (
             <button className="chip chip-clear" title="Убрать срок" onClick={() => update({ dueDate: null })}>
+              <Icon name="x" size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="prop">
+        <span className="prop-label">Напомнить</span>
+        <div className="chips">
+          <input
+            type="datetime-local"
+            className={`chip chip-date ${task.remindAt ? 'on' : ''}`}
+            value={toLocalInput(task.remindAt)}
+            onChange={(e) => update({ remindAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+          />
+          {task.remindAt && (
+            <button className="chip chip-clear" title="Убрать напоминание" onClick={() => update({ remindAt: null })}>
               <Icon name="x" size={12} />
             </button>
           )}

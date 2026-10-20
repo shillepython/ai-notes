@@ -52,7 +52,13 @@ const api = {
     ipcRenderer.on('data:changed', listener)
     return () => ipcRenderer.removeListener('data:changed', listener)
   },
-  voice: voiceApi
+  voice: voiceApi,
+  /** Fires when the user clicks a reminder notification. Returns an unsubscribe fn. */
+  onReminderOpen: (cb: (taskId: string) => void): (() => void) => {
+    const listener = (_e: unknown, taskId: string): void => cb(taskId)
+    ipcRenderer.on('reminders:open', listener)
+    return () => ipcRenderer.removeListener('reminders:open', listener)
+  }
 }
 
 export type Api = typeof api

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Store } from '../store'
 import type { AiChatItem, AiEffort, AiModelId } from '@shared/ai'
-import { systemPrompt } from './prompts'
+import { systemPrompt, timeStamp } from './prompts'
 import { executeTool, toolDefinitions } from './tools'
 
 const MAX_STEPS = 25
@@ -32,7 +32,10 @@ export class Conversation {
 
   async send(text: string, opts: RunOptions): Promise<void> {
     const client = new Anthropic({ apiKey: opts.apiKey })
-    const messages: Anthropic.Beta.BetaMessageParam[] = [...this.history, { role: 'user', content: text }]
+    const messages: Anthropic.Beta.BetaMessageParam[] = [
+      ...this.history,
+      { role: 'user', content: `${timeStamp()}\n${text}` }
+    ]
     const useFallbacks = FALLBACK_MODELS.has(opts.model)
 
     for (let step = 0; step < MAX_STEPS; step++) {
