@@ -1,0 +1,49 @@
+// Types shared between main, preload and renderer for the AI assistant.
+
+export const AI_MODELS = [
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (умнее)' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (быстрее, дешевле)' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 (самый быстрый)' }
+] as const
+
+export type AiModelId = (typeof AI_MODELS)[number]['id']
+export type AiEffort = 'low' | 'medium' | 'high'
+
+export interface AiSettings {
+  hasKey: boolean
+  /** Last 4 chars of the stored key, for display only. */
+  keyHint: string | null
+  model: AiModelId
+  effort: AiEffort
+  /** False when the OS keychain is unavailable and the key cannot be encrypted. */
+  encryptionAvailable: boolean
+}
+
+export interface AiSettingsPatch {
+  model?: AiModelId
+  effort?: AiEffort
+}
+
+/** One visible line in the chat panel. */
+export type AiChatItem =
+  | { kind: 'user'; text: string }
+  | { kind: 'assistant'; text: string }
+  | { kind: 'action'; tool: string; summary: string; ok: boolean }
+  | { kind: 'error'; text: string }
+
+/** Streamed from main to renderer while a request runs. */
+export type AiEvent =
+  | { requestId: string; type: 'item'; item: AiChatItem }
+  | { requestId: string; type: 'done' }
+
+export interface AiApi {
+  getSettings(): Promise<AiSettings>
+  setKey(key: string): Promise<{ ok: true } | { ok: false; error: string }>
+  clearKey(): Promise<void>
+  updateSettings(patch: AiSettingsPatch): Promise<AiSettings>
+  /** Sends a message; results arrive through onEvent with the returned requestId. */
+  send(text: string): Promise<string>
+  cancel(): Promise<void>
+  resetConversation(): Promise<void>
+  onEvent(cb: (event: AiEvent) => void): () => void
+}

@@ -97,3 +97,15 @@ import { VoiceButton } from '@renderer/voice'
 ```
 
 `source` равен `'hotkey'` или `'button'`. Есть и хук `useVoiceInput({ onTranscript })` для своей кнопки.
+
+## AI-ассистент (Claude)
+
+Правая панель — чат с Claude, который сам создаёт и закрывает задачи, пишет и правит заметки.
+
+1. Создай API-ключ на [console.anthropic.com](https://console.anthropic.com) → API Keys.
+2. Открой приложение, вставь ключ в панели ассистента и нажми «Сохранить». Ключ проверяется запросом к API и хранится зашифрованным через Electron `safeStorage` (связка ключей macOS) в `userData/anthropic-key.bin`; в renderer он не попадает.
+3. Пиши или диктуй: «завтра позвонить в банк и купить продукты», «закрыл задачу про банк, договорились о лимите», «допиши в заметку Идеи …».
+
+Модель по умолчанию Claude Opus 5.5, в настройках можно выбрать Sonnet 5.5 или Haiku 5.5 и глубину размышлений.
+
+Код: `src/main/ai/` (агент, инструменты, хранение ключа, IPC `ai:*`), `src/shared/ai.ts`, `src/preload/ai.ts` (`window.api.ai`), `src/renderer/src/components/AssistantPanel.tsx`. Другие компоненты могут отправить текст ассистенту (например, из голосового ввода): `window.dispatchEvent(new CustomEvent('assistant:submit', { detail: 'текст' }))`.
