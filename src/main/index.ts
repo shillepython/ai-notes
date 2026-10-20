@@ -6,6 +6,13 @@ import { registerAiIpc } from './ai/ipc'
 import { registerVoice } from './voice'
 import { startReminders } from './reminders'
 
+// Keep data in ~/Library/Application Support/ai-notes for both `npm run dev` and the
+// packaged "AI Notes.app" (whose name would otherwise pick a different folder).
+app.setPath('userData', join(app.getPath('appData'), 'ai-notes'))
+
+// One window per app: a second launch (e.g. from the Dock while running) focuses it.
+if (!app.requestSingleInstanceLock()) app.exit(0)
+
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
@@ -46,6 +53,12 @@ function createWindow(): void {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+})
 
 app.whenReady().then(() => {
   const store = initStore(join(app.getPath('userData'), 'ai-notes.db'))

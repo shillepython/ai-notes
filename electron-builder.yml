@@ -14,8 +14,16 @@ asarUnpack:
   - node_modules/@img/**
 mac:
   target:
-    - dmg
+    - target: dmg
+      arch: arm64
+  icon: resources/icon.png
   category: public.app-category.productivity
+  # Personal build without an Apple Developer ID: ad-hoc signature (required to run on
+  # Apple Silicon). Hardened runtime needs a real identity and entitlements, so it's off.
+  identity: '-'
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  notarize: false
   extendInfo:
     NSMicrophoneUsageDescription: AI Notes слушает микрофон, чтобы распознавать голосовые команды и диктовку.
 dmg:
