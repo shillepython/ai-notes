@@ -41,6 +41,8 @@ export interface Task {
   priority: TaskPriority
   /** Topic id or null */
   topicId: string | null
+  /** Manual order within a list (drag & drop); smaller comes first */
+  sortOrder: number
   /** YYYY-MM-DD or null */
   dueDate: string | null
   /** ISO timestamp when to show a notification, or null */
@@ -81,11 +83,15 @@ export interface TaskInput {
   priority?: TaskPriority
   dueDate?: string | null
   topicId?: string | null
+  /** Defaults to "after all existing tasks" */
+  sortOrder?: number
   /** ISO timestamp */
   remindAt?: string | null
 }
 
-export type TaskPatch = Partial<Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'remindAt'>>
+export type TaskPatch = Partial<
+  Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'sortOrder' | 'remindAt'>
+>
 
 export interface CompleteTaskOptions {
   /** Appended to the task description, e.g. "what was done" */

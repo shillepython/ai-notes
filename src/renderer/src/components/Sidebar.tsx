@@ -1,36 +1,7 @@
 import { useState } from 'react'
 import type { Note, Task, Topic } from '@shared/types'
-import { today } from '../dates'
-
-export type TaskFilter = 'today' | 'upcoming' | 'all' | 'done'
-export type View = { kind: 'tasks'; filter: TaskFilter } | { kind: 'topic'; id: string } | { kind: 'note'; id: string }
-
-const TASK_VIEWS: { filter: TaskFilter; label: string; icon: string }[] = [
-  { filter: 'today', label: 'Сегодня', icon: '☀️' },
-  { filter: 'upcoming', label: 'Предстоящие', icon: '📅' },
-  { filter: 'all', label: 'Все задачи', icon: '📋' },
-  { filter: 'done', label: 'Выполненные', icon: '✅' }
-]
-
-export function countFor(tasks: Task[], filter: TaskFilter): number {
-  return filterTasks(tasks, filter).length
-}
-
-export function filterTasks(tasks: Task[], filter: TaskFilter): Task[] {
-  const t = today()
-  switch (filter) {
-    case 'today':
-      return tasks.filter((x) => x.status !== 'done' && x.dueDate !== null && x.dueDate <= t)
-    case 'upcoming':
-      return tasks.filter((x) => x.status !== 'done' && x.dueDate !== null && x.dueDate > t)
-    case 'all':
-      return tasks.filter((x) => x.status !== 'done')
-    case 'done':
-      return tasks
-        .filter((x) => x.status === 'done')
-        .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
-  }
-}
+import { TASK_VIEWS, filterTasks, type View } from '../taskViews'
+import { Icon, Kbd } from './Icon'
 
 interface Props {
   notes: Note[]
@@ -39,10 +10,12 @@ interface Props {
   view: View
   onSelect: (v: View) => void
   onCreateNote: () => void
+  onOpenPalette: () => void
 }
 
-export default function Sidebar({ notes, tasks, topics, view, onSelect, onCreateNote }: Props): React.JSX.Element {
+export default function Sidebar({ notes, tasks, topics, view, onSelect, onCreateNote, onOpenPalette }: Props): React.JSX.Element {
   const [newTopic, setNewTopic] = useState<string | null>(null)
+  const open = filterTasks(tasks, 'all')
 
   const addTopic = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -57,77 +30,101 @@ export default function Sidebar({ notes, tasks, topics, view, onSelect, onCreate
   return (
     <nav className="sidebar">
       <div className="sidebar-drag" />
-      <div className="sidebar-section">Планер</div>
-      {TASK_VIEWS.map((v) => {
-        const active = view.kind === 'tasks' && view.filter === v.filter
-        const count = countFor(tasks, v.filter)
-        return (
-          <button
-            key={v.filter}
-            className={`sidebar-item ${active ? 'active' : ''}`}
-            onClick={() => onSelect({ kind: 'tasks', filter: v.filter })}
-          >
-            <span className="icon">{v.icon}</span>
-            <span className="label">{v.label}</span>
-            {v.filter !== 'done' && count > 0 && <span className="count">{count}</span>}
-          </button>
-        )
-      })}
+      <button className="search-btn" onClick={onOpenPalette}>
+        <Icon name="search" size={14} />
+        <span>Поиск и команды</span>
+        <Kbd keys="mod+k" />
+      </button>
 
-      <div className="sidebar-section row">
-        <span>Топики</span>
-        <button className="icon-btn" title="Новый топик" onClick={() => setNewTopic('')}>
-          +
-        </button>
-      </div>
-      {topics.map((t) => {
-        const count = filterTasks(tasks, 'all').filter((x) => x.topicId === t.id).length
-        return (
-          <button
-            key={t.id}
-            className={`sidebar-item ${view.kind === 'topic' && view.id === t.id ? 'active' : ''}`}
-            onClick={() => onSelect({ kind: 'topic', id: t.id })}
-          >
-            <span className="icon">{t.icon || <span className="topic-dot" style={{ background: t.color }} />}</span>
-            <span className="label">{t.name}</span>
-            {count > 0 && <span className="count">{count}</span>}
-          </button>
-        )
-      })}
-      {newTopic !== null && (
-        <form onSubmit={addTopic}>
-          <input
-            className="field sidebar-input"
-            autoFocus
-            placeholder="Название топика"
-            value={newTopic}
-            onChange={(e) => setNewTopic(e.target.value)}
-            onBlur={() => setNewTopic(null)}
-            onKeyDown={(e) => e.key === 'Escape' && setNewTopic(null)}
-          />
-        </form>
-      )}
-      {topics.length === 0 && newTopic === null && <div className="sidebar-hint">Группы задач: Работа, Дом…</div>}
+      <div className="sidebar-scroll">
+        <div className="sidebar-section">Планер</div>
+        {TASK_VIEWS.map((v) => {
+          const active = view.kind === 'tasks' && view.filter === v.filter
+          const count = v.filter === 'done' ? 0 : filterTasks(tasks, v.filter).length
+          return (
+            <button
+              key={v.filter}
+              className={`sidebar-item ${active ? 'active' : ''}`}
+              onClick={() => onSelect({ kind: 'tasks', filter: v.filter })}
+            >
+              <Icon name={v.icon} className={`view-icon view-icon--${v.filter}`} />
+              <span className="label">{v.label}</span>
+              {count > 0 && <span className="count">{count}</span>}
+            </button>
+          )
+        })}
 
-      <div className="sidebar-section row">
-        <span>Заметки</span>
-        <button className="icon-btn" title="Новая заметка" onClick={onCreateNote}>
-          +
-        </button>
-      </div>
-      <div className="sidebar-notes">
-        {notes.length === 0 && <div className="sidebar-hint">Пока нет заметок</div>}
+        <div className="sidebar-section row">
+          <span>Топики</span>
+          <button className="icon-btn" title="Новый топик" onClick={() => setNewTopic('')}>
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
+        {topics.map((t) => {
+          const count = open.filter((x) => x.topicId === t.id).length
+          return (
+            <button
+              key={t.id}
+              className={`sidebar-item ${view.kind === 'topic' && view.id === t.id ? 'active' : ''}`}
+              onClick={() => onSelect({ kind: 'topic', id: t.id })}
+              style={{ '--topic': t.color } as React.CSSProperties}
+            >
+              <TopicMark topic={t} />
+              <span className="label">{t.name}</span>
+              {count > 0 && <span className="count">{count}</span>}
+            </button>
+          )
+        })}
+        {newTopic !== null && (
+          <form onSubmit={addTopic} className="sidebar-new">
+            <span className="topic-dot" />
+            <input
+              autoFocus
+              placeholder="Название, Enter"
+              value={newTopic}
+              onChange={(e) => setNewTopic(e.target.value)}
+              onBlur={() => setNewTopic(null)}
+              onKeyDown={(e) => e.key === 'Escape' && setNewTopic(null)}
+            />
+          </form>
+        )}
+        {topics.length === 0 && newTopic === null && (
+          <button className="sidebar-hint" onClick={() => setNewTopic('')}>
+            Группы задач: Работа, Дом…
+          </button>
+        )}
+
+        <div className="sidebar-section row">
+          <span>Заметки</span>
+          <button className="icon-btn" title="Новая заметка (⌘⇧N)" onClick={onCreateNote}>
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
+        {notes.length === 0 && (
+          <button className="sidebar-hint" onClick={onCreateNote}>
+            Создать первую заметку
+          </button>
+        )}
         {notes.map((n) => (
           <button
             key={n.id}
             className={`sidebar-item ${view.kind === 'note' && view.id === n.id ? 'active' : ''}`}
             onClick={() => onSelect({ kind: 'note', id: n.id })}
           >
-            <span className="icon">📄</span>
+            <Icon name="file" className="muted-icon" />
             <span className="label">{n.title || 'Без названия'}</span>
           </button>
         ))}
       </div>
     </nav>
+  )
+}
+
+/** Topic emoji, or a colored dot when it has none. */
+export function TopicMark({ topic }: { topic: Topic }): React.JSX.Element {
+  return topic.icon ? (
+    <span className="topic-emoji">{topic.icon}</span>
+  ) : (
+    <span className="topic-dot" style={{ background: topic.color }} />
   )
 }

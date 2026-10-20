@@ -80,6 +80,17 @@ test('opening a database from before topics adds the topic_id column', async () 
   s.close()
 })
 
+test('tasks: manual sort order survives updates', () => {
+  const s = fresh()
+  const a = s.createTask({ title: 'A' })
+  const b = s.createTask({ title: 'B' })
+  assert.ok(b.sortOrder >= a.sortOrder)
+  const moved = s.updateTask(b.id, { sortOrder: a.sortOrder - 1 })
+  assert.equal(moved.sortOrder, a.sortOrder - 1)
+  assert.equal(s.updateTask(b.id, { title: 'B2' }).sortOrder, a.sortOrder - 1)
+  assert.equal(s.createTask({ title: 'C', sortOrder: 5 }).sortOrder, 5)
+})
+
 test('reminders: due ones fire once, changing the time re-arms, done tasks are skipped', () => {
   const s = fresh()
   const a = s.createTask({ title: 'Позвонить маме', remindAt: '2026-10-21T15:00:00.000Z' })
