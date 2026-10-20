@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Store } from '../store'
-import type { AiChatItem, AiEffort, AiModelId } from '@shared/ai'
-import { systemPrompt, timeStamp } from './prompts'
+import type { AiChatItem, AiEffort, AiModelId, AiViewContext } from '@shared/ai'
+import { systemPrompt, timeStamp, viewLine } from './prompts'
 import { executeTool, toolDefinitions } from './tools'
 
 const MAX_STEPS = 25
@@ -14,6 +14,8 @@ export interface RunOptions {
   model: AiModelId
   effort: AiEffort
   store: Store
+  /** What the user has open; decides the default topic for new tasks. */
+  view?: AiViewContext | null
   signal: AbortSignal
   onItem(item: AiChatItem): void
 }
@@ -32,9 +34,14 @@ export class Conversation {
 
   async send(text: string, opts: RunOptions): Promise<void> {
     const client = new Anthropic({ apiKey: opts.apiKey })
+    const { store, view } = opts
+    const topic = view?.kind === 'topic' ? store.getTopic(view.topicId) : null
+    const note = view?.kind === 'note' ? store.getNote(view.noteId) : null
+    const where = viewLine({ topic: topic?.name, note: note ? { id: note.id, title: note.title } : undefined })
+    const toolContext = { defaultTopicId: topic?.id ?? null }
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...this.history,
-      { role: 'user', content: `${timeStamp()}\n${text}` }
+      { role: 'user', content: `${timeStamp()}${where}\n${text}` }
     ]
     const useFallbacks = FALLBACK_MODELS.has(opts.model)
 
@@ -81,7 +88,7 @@ export class Conversation {
       }
 
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = toolUses.map((use) => {
-        const outcome = executeTool(opts.store, use.name, use.input)
+        const outcome = executeTool(store, use.name, use.input, toolContext)
         opts.onItem({ kind: 'action', tool: use.name, summary: outcome.summary, ok: !outcome.isError })
         return { type: 'tool_result', tool_use_id: use.id, content: outcome.content, is_error: outcome.isError }
       })

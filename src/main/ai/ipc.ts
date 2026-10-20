@@ -1,17 +1,18 @@
 import { clipboard, ipcMain, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { getStore } from '../store'
-import type { AiEvent, AiSettingsPatch } from '@shared/ai'
+import type { AiEvent, AiSettingsPatch, AiViewContext } from '@shared/ai'
 import { Conversation, describeError, verifyKey } from './agent'
 import { generateCodePrompt } from './codePrompt'
 import type { CodePromptTask } from './prompts'
 import { clearApiKey, getApiKey, getPrefs, getSettings, saveApiKey, updatePrefs } from './settings'
 
 // IPC for the assistant. Channels: ai:getSettings, ai:setKey, ai:clearKey,
-// ai:updateSettings, ai:send, ai:cancel, ai:reset, ai:codePrompt; events go out on 'ai:event'.
+// ai:updateSettings, ai:send, ai:cancel, ai:setView, ai:reset, ai:codePrompt; events go out on 'ai:event'.
 
 const conversation = new Conversation()
 let running: AbortController | null = null
+let view: AiViewContext | null = null
 
 function emit(target: WebContents, event: AiEvent): void {
   if (!target.isDestroyed()) target.send('ai:event', event)
@@ -63,6 +64,7 @@ export function registerAiIpc(): void {
           apiKey,
           ...getPrefs(),
           store: getStore(),
+          view,
           signal: controller.signal,
           onItem: (item) => emit(target, { requestId, type: 'item', item })
         })
@@ -73,6 +75,10 @@ export function registerAiIpc(): void {
         emit(target, { requestId, type: 'done' })
       }
     })
+  })
+
+  ipcMain.handle('ai:setView', (_e, raw: unknown) => {
+    view = raw && typeof raw === 'object' && 'kind' in raw ? (raw as AiViewContext) : null
   })
 
   ipcMain.handle('ai:cancel', () => {

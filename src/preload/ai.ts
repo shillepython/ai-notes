@@ -9,6 +9,7 @@ export const aiApi: AiApi = {
   updateSettings: (patch) => ipcRenderer.invoke('ai:updateSettings', patch),
   send: (text, requestId) => ipcRenderer.invoke('ai:send', text, requestId),
   cancel: () => ipcRenderer.invoke('ai:cancel'),
+  setViewContext: (view) => ipcRenderer.invoke('ai:setView', view),
   resetConversation: () => ipcRenderer.invoke('ai:reset'),
   codePrompt: (task) => ipcRenderer.invoke('ai:codePrompt', task),
   onEvent: (cb) => {

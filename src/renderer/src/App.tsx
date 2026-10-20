@@ -134,6 +134,17 @@ export default function App(): React.JSX.Element {
     []
   )
 
+  // Lets the assistant file new tasks into the open topic and write into the open note.
+  useEffect(() => {
+    window.api.ai.setViewContext(
+      view.kind === 'topic'
+        ? { kind: 'topic', topicId: view.id }
+        : view.kind === 'note'
+          ? { kind: 'note', noteId: view.id }
+          : { kind: 'tasks', filter: view.filter }
+    )
+  }, [view])
+
   // Global shortcuts. Letters match physical keys, so they work in the Russian layout too.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

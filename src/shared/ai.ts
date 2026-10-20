@@ -24,6 +24,12 @@ export interface AiSettingsPatch {
   effort?: AiEffort
 }
 
+/** What the user has open in the main window; new tasks go into an open topic by default. */
+export type AiViewContext =
+  | { kind: 'tasks'; filter: string }
+  | { kind: 'topic'; topicId: string }
+  | { kind: 'note'; noteId: string }
+
 /** One visible line in the chat panel. */
 export type AiChatItem =
   | { kind: 'user'; text: string }
@@ -47,6 +53,8 @@ export interface AiApi {
    */
   send(text: string, requestId: string): Promise<void>
   cancel(): Promise<void>
+  /** Tells the assistant what is open now. Call on every view change. */
+  setViewContext(view: AiViewContext): Promise<void>
   resetConversation(): Promise<void>
   onEvent(cb: (event: AiEvent) => void): () => void
   /** Generates a coding-assistant prompt from a task (with unsaved edits) and copies it to the clipboard. */
