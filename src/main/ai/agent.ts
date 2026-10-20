@@ -9,6 +9,63 @@ const MAX_STEPS = 25
 // Models with server-side refusal fallback. Haiku has none, so we don't send it there.
 const FALLBACK_MODELS: ReadonlySet<AiModelId> = new Set(['claude-opus-5-5', 'claude-sonnet-5-5'])
 
+/** Anthropic-hosted web search and page fetch. Haiku only supports the basic versions. */
+export function webTools(model: AiModelId): Anthropic.Beta.BetaToolUnion[] {
+  return model === 'claude-haiku-5-5'
+    ? [
+        { type: 'web_search_20250305', name: 'web_search', max_uses: 8 },
+        { type: 'web_fetch_20250910', name: 'web_fetch', max_uses: 8 }
+      ]
+    : [
+        { type: 'web_search_20260209', name: 'web_search', max_uses: 8 },
+        { type: 'web_fetch_20260209', name: 'web_fetch', max_uses: 8 }
+      ]
+}
+
+/**
+ * Turns one response into chat items in order: text (with its web sources
+ * appended as links) and a line for each web search / page fetch.
+ */
+export function responseItems(content: Anthropic.Beta.BetaContentBlock[]): AiChatItem[] {
+  const items: AiChatItem[] = []
+  const calls = new Map<string, Anthropic.Beta.BetaServerToolUseBlock>()
+  let text = ''
+  const sources = new Map<string, string>()
+
+  const flush = (): void => {
+    if (text.trim()) {
+      const links = [...sources].map(([url, title]) => `[${title.replace(/[[\]]/g, '')}](${url})`)
+      items.push({ kind: 'assistant', text: links.length ? `${text.trim()}\n\nИсточники: ${links.join(', ')}` : text.trim() })
+    }
+    text = ''
+    sources.clear()
+  }
+
+  for (const block of content) {
+    if (block.type === 'text') {
+      text += block.text
+      for (const c of block.citations ?? []) {
+        if (c.type === 'web_search_result_location') sources.set(c.url, c.title || new URL(c.url).hostname)
+      }
+    } else if (block.type === 'server_tool_use') {
+      calls.set(block.id, block)
+    } else if (block.type === 'web_search_tool_result' || block.type === 'web_fetch_tool_result') {
+      flush()
+      const input = (calls.get(block.tool_use_id)?.input ?? {}) as { query?: string; url?: string }
+      const failed = block.type === 'web_search_tool_result' ? !Array.isArray(block.content) : block.content.type !== 'web_fetch_result'
+      const summary =
+        block.type === 'web_search_tool_result'
+          ? `Поиск в интернете: «${input.query ?? ''}»`
+          : `Открыта страница ${input.url ?? ''}`
+      items.push({ kind: 'action', tool: block.type, summary: failed ? `${summary} (не удалось)` : summary, ok: !failed })
+    } else if (block.type === 'tool_use') {
+      flush()
+    }
+  }
+  flush()
+  return items
+}
+
 export interface RunOptions {
   apiKey: string
   model: AiModelId
@@ -54,7 +111,7 @@ export class Conversation {
           cache_control: { type: 'ephemeral' },
           thinking: { type: 'adaptive' },
           output_config: { effort: opts.effort },
-          tools: toolDefinitions,
+          tools: [...toolDefinitions, ...webTools(opts.model)],
           messages,
           ...(useFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {})
         },
@@ -66,9 +123,7 @@ export class Conversation {
         return
       }
 
-      for (const block of response.content) {
-        if (block.type === 'text' && block.text.trim()) opts.onItem({ kind: 'assistant', text: block.text })
-      }
+      for (const item of responseItems(response.content)) opts.onItem(item)
       messages.push({ role: 'assistant', content: response.content })
 
       if (response.stop_reason === 'pause_turn') continue

@@ -43,3 +43,11 @@ test('viewLine names the open topic or note', () => {
   assert.equal(viewLine({ topic: 'Работа' }), ' [Открыт топик «Работа»]')
   assert.match(viewLine({ note: { id: 'n1', title: '' } }), /Без названия.*n1/)
 })
+
+test('system prompt tells the assistant to research the web and cite sources', () => {
+  const p = systemPrompt()
+  assert.match(p, /web_search/)
+  assert.match(p, /web_fetch/)
+  assert.match(p, /Никогда не говори, что у тебя/)
+  assert.match(p, /## Источники/)
+})
