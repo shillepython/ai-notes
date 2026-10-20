@@ -57,7 +57,9 @@ export default function AssistantPanel(): JSX.Element {
     setItems((prev) => [...prev, { kind: 'user', text: trimmed }])
     setInput('')
     setBusy(true)
-    currentRequest.current = await ai().send(trimmed)
+    const requestId = crypto.randomUUID()
+    currentRequest.current = requestId
+    await ai().send(trimmed, requestId)
   }, [])
 
   useEffect(() => {
