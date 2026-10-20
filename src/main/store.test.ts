@@ -38,3 +38,44 @@ test('tasks: create, filter, complete with comment, reopen', () => {
   assert.equal(reopened.completedAt, null)
   assert.equal(changes.length, 5)
 })
+
+test('topics: create, assign, filter, rename, delete keeps tasks', () => {
+  const s = fresh()
+  const work = s.createTopic({ name: 'Работа', icon: '💼' })
+  assert.ok(work.color)
+  assert.throws(() => s.createTopic({ name: ' работа ' }))
+  assert.equal(s.findTopicByName('РАБОТА')?.id, work.id)
+
+  const a = s.createTask({ title: 'Отчёт', topicId: work.id })
+  s.createTask({ title: 'Магазин' })
+  assert.equal(s.listTasks({ topicId: work.id }).length, 1)
+  assert.equal(s.listTasks({ topicId: null }).length, 1)
+  assert.throws(() => s.createTask({ title: 'x', topicId: 'nope' }))
+
+  assert.equal(s.updateTopic(work.id, { name: 'Офис' }).name, 'Офис')
+  assert.equal(s.updateTask(a.id, { topicId: null }).topicId, null)
+  s.updateTask(a.id, { topicId: work.id })
+
+  assert.equal(s.deleteTopic(work.id), true)
+  assert.equal(s.listTopics().length, 0)
+  assert.equal(s.getTask(a.id)!.topicId, null)
+})
+
+test('opening a database from before topics adds the topic_id column', async () => {
+  const { DatabaseSync } = await import('node:sqlite')
+  const { mkdtempSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const path = join(mkdtempSync(join(tmpdir(), 'ai-notes-')), 'old.db')
+  const old = new DatabaseSync(path)
+  old.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'todo', priority TEXT NOT NULL DEFAULT 'medium', due_date TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT);
+    INSERT INTO tasks (id, title, created_at, updated_at) VALUES ('t1', 'Старая', 'x', 'x');`)
+  old.close()
+  const s = new Store(path)
+  assert.equal(s.getTask('t1')!.topicId, null)
+  const topic = s.createTopic({ name: 'Дом' })
+  assert.equal(s.updateTask('t1', { topicId: topic.id }).topicId, topic.id)
+  s.close()
+})

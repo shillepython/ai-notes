@@ -9,7 +9,10 @@ import type {
   Task,
   TaskInput,
   TaskPatch,
-  TaskQuery
+  TaskQuery,
+  Topic,
+  TopicInput,
+  TopicPatch
 } from '../shared/types'
 import { aiApi } from './ai'
 import { voiceApi } from './voice'
@@ -31,6 +34,15 @@ const api = {
       ipcRenderer.invoke('tasks:complete', id, opts),
     reopen: (id: string): Promise<Task> => ipcRenderer.invoke('tasks:reopen', id),
     delete: (id: string): Promise<boolean> => ipcRenderer.invoke('tasks:delete', id)
+  },
+  topics: {
+    /** Sorted by name */
+    list: (): Promise<Topic[]> => ipcRenderer.invoke('topics:list'),
+    get: (id: string): Promise<Topic | null> => ipcRenderer.invoke('topics:get', id),
+    create: (input: TopicInput): Promise<Topic> => ipcRenderer.invoke('topics:create', input),
+    update: (id: string, patch: TopicPatch): Promise<Topic> => ipcRenderer.invoke('topics:update', id, patch),
+    /** Tasks in the topic are kept, with topicId set to null */
+    delete: (id: string): Promise<boolean> => ipcRenderer.invoke('topics:delete', id)
   },
   /** Claude assistant: API key settings and chat. */
   ai: aiApi,
