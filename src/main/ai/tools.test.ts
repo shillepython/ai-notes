@@ -96,3 +96,26 @@ test('reminders: local times round-trip and update_task moves or clears them', (
   assert.equal(s.getTask(view.id)!.remindAt, null)
   assert.equal(executeTool(s, 'create_tasks', { tasks: [{ title: 'x', remindAt: 'в 18:00' }] }).isError, true)
 })
+
+test('create_tasks files into the open topic unless another topic or null is given', () => {
+  const s = fresh()
+  const work = s.createTopic({ name: 'Работа' })
+  const ctx = { defaultTopicId: work.id }
+  executeTool(s, 'create_tasks', { tasks: [{ title: 'Отчёт' }] }, ctx)
+  executeTool(s, 'create_tasks', { topic: 'Дом', tasks: [{ title: 'Хлеб' }] }, ctx)
+  executeTool(s, 'create_tasks', { tasks: [{ title: 'Без топика', topic: null }] }, ctx)
+  executeTool(s, 'create_tasks', { tasks: [{ title: 'Вне топика' }] })
+
+  const topicOf = (title: string): string | undefined => {
+    const t = s.listTasks({ query: title })[0]
+    return t.topicId ? s.getTopic(t.topicId)!.name : undefined
+  }
+  assert.equal(topicOf('Отчёт'), 'Работа')
+  assert.equal(topicOf('Хлеб'), 'Дом')
+  assert.equal(topicOf('Без топика'), undefined)
+  assert.equal(topicOf('Вне топика'), undefined)
+
+  // A deleted open topic must not break task creation.
+  s.deleteTopic(work.id)
+  assert.equal(executeTool(s, 'create_tasks', { tasks: [{ title: 'После удаления' }] }, ctx).isError, false)
+})

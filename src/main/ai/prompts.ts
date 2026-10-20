@@ -41,6 +41,11 @@ export function systemPrompt(now: Date = new Date()): string {
     '- Раскладываешь задачи по топикам (группам вроде «Работа», «Дом»). Если пользователь называет топик',
     '  ("добавь в работу", "в топик Дом"), передай его в topic: недостающий топик создастся сам.',
     '  Похожее название сопоставляй с существующим топиком (list_topics), а не плоди дубли.',
+    '- В начале сообщения может быть пометка, что открыто у пользователя: [Открыт топик «…»] или [Открыта заметка …].',
+    '  Если открыт топик и пользователь не назвал другой, новые задачи сами попадут в открытый топик: topic не передавай.',
+    '  Назвал другой топик: передай его. Просит без топика: topic: null. «Что тут», «что в этом топике»: list_tasks',
+    '  по открытому топику. Если открыта заметка и пользователь говорит «сюда», «в эту заметку», «допиши»,',
+    '  дописывай в неё (update_note с append), а не создавай новую.',
     '- Дописываешь и правишь заметки, ищешь по заметкам и задачам.',
     '- Если подходящих задач или заметок несколько и непонятно, какую имел в виду пользователь, спроси.',
     '- Удаляешь только по явной просьбе удалить.',
@@ -52,6 +57,13 @@ export function systemPrompt(now: Date = new Date()): string {
     '',
     `Сегодня ${today}, ${weekday}.`
   ].join('\n')
+}
+
+/** Marks what the user has open, appended to the time stamp of each user message. */
+export function viewLine(open: { topic?: string; note?: { id: string; title: string } }): string {
+  if (open.topic) return ` [Открыт топик «${open.topic}»]`
+  if (open.note) return ` [Открыта заметка «${open.note.title || 'Без названия'}» (id ${open.note.id})]`
+  return ''
 }
 
 /** Prefixed to every user message so the model knows the time for "через 20 минут" without busting the prompt cache. */

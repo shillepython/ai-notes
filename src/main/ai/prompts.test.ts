@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { codePromptRequest, systemPrompt } from './prompts.ts'
+import { codePromptRequest, systemPrompt, viewLine } from './prompts.ts'
 import { toolDefinitions } from './tools.ts'
 
 const describe = (name: string): string => toolDefinitions.find((t) => t.name === name)!.description!
@@ -36,4 +36,10 @@ test('code prompt request carries the task and its steps', () => {
   assert.match(req, /Срок: 2026-10-25/)
   assert.match(req, /- \[ \] Кнопка в тулбаре/)
   assert.doesNotMatch(codePromptRequest({ title: 'x', description: '', dueDate: null, priority: 'low' }), /Срок/)
+})
+
+test('viewLine names the open topic or note', () => {
+  assert.equal(viewLine({}), '')
+  assert.equal(viewLine({ topic: 'Работа' }), ' [Открыт топик «Работа»]')
+  assert.match(viewLine({ note: { id: 'n1', title: '' } }), /Без названия.*n1/)
 })

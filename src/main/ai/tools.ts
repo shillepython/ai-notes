@@ -21,10 +21,16 @@ const fromLocal = (value: string): string => new Date(value).toISOString()
 const toLocal = (iso: string | null): string | null =>
   iso ? new Date(iso).toLocaleString('sv-SE').slice(0, 16).replace(' ', 'T') : null
 
+/** What the user has open while the assistant runs. */
+export interface ToolContext {
+  /** The open topic: new tasks go there unless the model names a topic or passes null. */
+  defaultTopicId?: string | null
+}
+
 interface ToolDef<S extends z.ZodType> {
   description: string
   schema: S
-  run(store: Store, input: z.infer<S>): { result: unknown; summary: string }
+  run(store: Store, input: z.infer<S>, ctx: ToolContext): { result: unknown; summary: string }
 }
 
 function tool<S extends z.ZodType>(def: ToolDef<S>): ToolDef<S> {
@@ -111,19 +117,26 @@ const TOOLS = {
                 dueDate: isoDate.optional().describe('Срок в формате YYYY-MM-DD'),
                 remindAt: localDateTime.optional(),
                 priority: priority.optional(),
-                topic: topicName.optional().describe('Топик этой задачи, если отличается от общего')
+                topic: topicName
+                  .nullable()
+                  .optional()
+                  .describe('Топик этой задачи, если отличается от общего; null — без топика')
               })
               .strict()
           )
           .min(1),
-        topic: topicName.optional().describe('Топик для всех задач, например «Работа»')
+        topic: topicName
+          .nullable()
+          .optional()
+          .describe('Топик для всех задач, например «Работа». Не указан — открытый топик; null — без топика')
       })
       .strict(),
-    run(store, { tasks, topic }) {
+    run(store, { tasks, topic }, ctx) {
       const newTopics: string[] = []
+      const fallbackTopicId = ctx.defaultTopicId && store.getTopic(ctx.defaultTopicId) ? ctx.defaultTopicId : null
       const created = tasks.map(({ topic: own, remindAt, ...t }) => {
-        const name = own ?? topic
-        let topicId: string | null = null
+        const name = own !== undefined ? own : topic
+        let topicId: string | null = name === undefined ? fallbackTopicId : null
         if (name) {
           const res = ensureTopic(store, name)
           if (res.created) newTopics.push(res.topic.name)
@@ -385,7 +398,7 @@ export interface ToolOutcome {
   summary: string
 }
 
-export function executeTool(store: Store, name: string, input: unknown): ToolOutcome {
+export function executeTool(store: Store, name: string, input: unknown, ctx: ToolContext = {}): ToolOutcome {
   const def = TOOLS[name as ToolName] as ToolDef<z.ZodType> | undefined
   if (!def) return { content: `Неизвестный инструмент ${name}`, isError: true, summary: `Неизвестный инструмент ${name}` }
 
@@ -395,7 +408,7 @@ export function executeTool(store: Store, name: string, input: unknown): ToolOut
     return { content: msg, isError: true, summary: `${name}: неверные параметры` }
   }
   try {
-    const { result, summary } = def.run(store, parsed.data)
+    const { result, summary } = def.run(store, parsed.data, ctx)
     return { content: JSON.stringify(result), isError: false, summary }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

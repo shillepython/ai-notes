@@ -20,6 +20,17 @@ export default function App(): React.JSX.Element {
     []
   )
 
+  // Lets the assistant file new tasks into the open topic and write into the open note.
+  useEffect(() => {
+    window.api.ai.setViewContext(
+      view.kind === 'topic'
+        ? { kind: 'topic', topicId: view.id }
+        : view.kind === 'note'
+          ? { kind: 'note', noteId: view.id }
+          : { kind: 'tasks', filter: view.filter }
+    )
+  }, [view])
+
   const createNote = async (): Promise<void> => {
     const note = await window.api.notes.create({ title: 'Без названия', content: '' })
     setView({ kind: 'note', id: note.id })
