@@ -5,8 +5,11 @@
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {
+    "postinstall": "node scripts/ensure-electron.mjs",
+    "predev": "node scripts/ensure-electron.mjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "prestart": "node scripts/ensure-electron.mjs",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node --experimental-strip-types --test src/main/store.test.ts src/main/ai/tools.test.ts",
