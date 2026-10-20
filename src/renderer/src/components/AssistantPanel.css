@@ -89,6 +89,10 @@
   flex-direction: column;
   gap: 10px;
 }
+/* Messages keep their natural height; without this the column squeezes them and text spills out. */
+.assistant__list > * {
+  flex-shrink: 0;
+}
 
 .assistant__empty {
   margin: auto 0;
@@ -143,6 +147,9 @@
 }
 
 .assistant__msg {
+  box-sizing: border-box;
+  width: fit-content;
+  min-width: 0;
   padding: 9px 13px;
   border-radius: 16px;
   line-height: 1.5;
@@ -163,13 +170,21 @@
   border: 1px solid var(--border);
   border-bottom-left-radius: 5px;
   font-size: 14px;
-  min-height: 0;
 }
 .assistant__msg.markdown p {
   margin: 0 0 0.5em;
 }
 .assistant__msg.markdown > :last-child {
   margin-bottom: 0;
+}
+.assistant__msg.markdown a {
+  color: var(--accent);
+}
+.assistant__msg.markdown pre,
+.assistant__msg.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 .assistant__msg.markdown ul,
 .assistant__msg.markdown ol {

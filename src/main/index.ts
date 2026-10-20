@@ -46,6 +46,14 @@ function createWindow(): void {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+  // Links in notes and assistant answers open in the browser instead of replacing the app.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      if (process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) return
+      event.preventDefault()
+      shell.openExternal(url)
+    }
+  })
 
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
