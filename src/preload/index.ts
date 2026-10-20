@@ -11,6 +11,7 @@ import type {
   TaskPatch,
   TaskQuery
 } from '../shared/types'
+import { aiApi } from './ai'
 
 const api = {
   notes: {
@@ -30,6 +31,8 @@ const api = {
     reopen: (id: string): Promise<Task> => ipcRenderer.invoke('tasks:reopen', id),
     delete: (id: string): Promise<boolean> => ipcRenderer.invoke('tasks:delete', id)
   },
+  /** Claude assistant: API key settings and chat. */
+  ai: aiApi,
   /** Fires after any change, including ones made by the AI assistant. Returns an unsubscribe fn. */
   onDataChanged: (cb: (change: DataChange) => void): (() => void) => {
     const listener = (_e: unknown, change: DataChange): void => cb(change)

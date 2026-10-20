@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
+import { registerAiIpc } from './ai/ipc'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -35,6 +36,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const store = initStore(join(app.getPath('userData'), 'ai-notes.db'))
   registerIpc(store)
+  registerAiIpc()
   createWindow()
 
   app.on('activate', () => {

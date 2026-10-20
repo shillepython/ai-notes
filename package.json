@@ -9,11 +9,13 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "node --experimental-strip-types --test src/main/store.test.ts",
+    "test": "node --experimental-strip-types --test src/main/store.test.ts src/main/ai/tools.test.ts",
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
-    "marked": "^18.1.1"
+    "@anthropic-ai/sdk": "^0.137.0",
+    "marked": "^18.1.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
