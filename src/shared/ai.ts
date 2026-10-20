@@ -41,8 +41,11 @@ export interface AiApi {
   setKey(key: string): Promise<{ ok: true } | { ok: false; error: string }>
   clearKey(): Promise<void>
   updateSettings(patch: AiSettingsPatch): Promise<AiSettings>
-  /** Sends a message; results arrive through onEvent with the returned requestId. */
-  send(text: string): Promise<string>
+  /**
+   * Sends a message; results arrive through onEvent tagged with requestId. The caller picks
+   * the id before sending, because events can arrive before this promise resolves.
+   */
+  send(text: string, requestId: string): Promise<void>
   cancel(): Promise<void>
   resetConversation(): Promise<void>
   onEvent(cb: (event: AiEvent) => void): () => void
