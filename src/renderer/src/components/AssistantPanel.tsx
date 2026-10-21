@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type JSX, type KeyboardEvent } from 'react'
 import { marked } from 'marked'
 import { AI_MODELS, type AiChatItem, type AiEffort, type AiModelId, type AiSettings } from '@shared/ai'
 import { VoiceButton } from '@renderer/voice'
 import { onUi } from '../hotkeys'
+import { imageFiles, MAX_IMAGES, prepareImages, toAiImages, type PendingImage } from '../imageInput'
 import { Icon, Kbd } from './Icon'
 import { autosize } from './TaskBoard'
 import './AssistantPanel.css'
@@ -18,7 +19,8 @@ const EXAMPLES = [
 
 /**
  * Right-side assistant panel: chat with Claude that can create/close tasks and
- * edit notes. Other components can submit text (e.g. from voice input) with
+ * edit notes. Pictures can be pasted (⌘V), dropped on the panel or picked, and go
+ * along with the next message. Other components can submit text (e.g. from voice input) with
  * window.dispatchEvent(new CustomEvent('assistant:submit', { detail: 'текст' })).
  */
 export default function AssistantPanel({ onClose }: { onClose?: () => void }): JSX.Element {
@@ -30,6 +32,13 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
   const currentRequest = useRef<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [images, setImages] = useState<PendingImage[]>([])
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [dropping, setDropping] = useState(false)
+  const dragDepth = useRef(0)
 
   useEffect(() => {
     ai()
@@ -60,15 +69,35 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
   useEffect(() => autosize(inputRef.current), [input])
   useEffect(() => onUi('assistant:focus', () => inputRef.current?.focus()), [])
 
+  const addImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) return
+    const { images: ready, error } = await prepareImages(files, MAX_IMAGES - imagesRef.current.length)
+    setImageError(error)
+    if (ready.length) setImages((prev) => [...prev, ...ready])
+    inputRef.current?.focus()
+  }, [])
+
+  const removeImage = (id: string): void => {
+    setImages((prev) => {
+      const gone = prev.find((img) => img.id === id)
+      if (gone) URL.revokeObjectURL(gone.preview)
+      return prev.filter((img) => img.id !== id)
+    })
+  }
+
   const submit = useCallback(async (text: string) => {
     const trimmed = text.trim()
-    if (!trimmed) return
-    setItems((prev) => [...prev, { kind: 'user', text: trimmed }])
+    // Pictures waiting in the composer go with whatever is sent next (typed, dictated or an example).
+    const attached = imagesRef.current
+    if (!trimmed && attached.length === 0) return
+    setItems((prev) => [...prev, { kind: 'user', text: trimmed, images: attached.map((img) => img.preview) }])
     setInput('')
+    setImages([])
+    setImageError(null)
     setBusy(true)
     const requestId = crypto.randomUUID()
     currentRequest.current = requestId
-    await ai().send(trimmed, requestId)
+    await ai().send(trimmed, requestId, toAiImages(attached))
   }, [])
 
   useEffect(() => {
@@ -92,10 +121,50 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
     }
   }
 
+  const onPaste = (e: ClipboardEvent): void => {
+    const files = imageFiles(e.clipboardData.files)
+    if (files.length === 0) return
+    e.preventDefault()
+    void addImages(files)
+  }
+
+  const hasFiles = (e: DragEvent): boolean => e.dataTransfer.types.includes('Files')
+  const dropHandlers = {
+    onDragEnter: (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      dragDepth.current++
+      setDropping(true)
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+    },
+    onDragLeave: (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      if (--dragDepth.current <= 0) {
+        dragDepth.current = 0
+        setDropping(false)
+      }
+    },
+    onDrop: (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      dragDepth.current = 0
+      setDropping(false)
+      const files = Array.from(e.dataTransfer.files)
+      const pictures = imageFiles(files)
+      if (pictures.length < files.length) setImageError('Ассистенту можно отправить только картинки')
+      void addImages(pictures)
+    }
+  }
+
   const newChat = async (): Promise<void> => {
     await ai().resetConversation()
     currentRequest.current = null
     setBusy(false)
+    for (const item of items) if (item.kind === 'user') item.images?.forEach((url) => URL.revokeObjectURL(url))
     setItems([])
   }
 
@@ -114,7 +183,13 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
   }
 
   return (
-    <div className="assistant">
+    <div className={`assistant${dropping ? ' assistant--dropping' : ''}`} onPaste={onPaste} {...dropHandlers}>
+      {dropping && (
+        <div className="assistant__drop">
+          <Icon name="image" size={22} />
+          Отпусти, чтобы приложить картинку
+        </div>
+      )}
       <header className="assistant__header">
         <span className="assistant__title">
           <span className="assistant__logo">
@@ -143,7 +218,10 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
               <Icon name="sparkles" size={26} />
             </div>
             <h3>Чем помочь?</h3>
-            <p>Надиктуй или напиши, что нужно сделать, или расскажи, что уже сделано. Я сам создам и закрою задачи.</p>
+            <p>
+              Надиктуй или напиши, что нужно сделать, или расскажи, что уже сделано. Я сам создам и закрою задачи. Можно
+              вставить скриншот (⌘V) и попросить, что с ним сделать.
+            </p>
             <div className="assistant__examples">
               {EXAMPLES.map((ex) => (
                 <button key={ex} className="assistant__example" onClick={() => submit(ex)} disabled={busy}>
@@ -167,15 +245,52 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
 
       <form className="assistant__composer" onSubmit={onFormSubmit}>
         <div className="assistant__box">
+          {images.length > 0 && (
+            <div className="assistant__thumbs">
+              {images.map((img) => (
+                <div key={img.id} className="assistant__thumb" title={img.name}>
+                  <img src={img.preview} alt={img.name} />
+                  <button type="button" onClick={() => removeImage(img.id)} title="Убрать">
+                    <Icon name="x" size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Что нужно сделать? Например: завтра позвонить в банк и доделать презентацию к пятнице…"
+            placeholder={
+              images.length
+                ? 'Что сделать с картинкой? Например: создай задачи по этому скрину…'
+                : 'Что нужно сделать? Например: завтра позвонить в банк и доделать презентацию к пятнице…'
+            }
             rows={3}
           />
+          {imageError && <div className="assistant__image-error">{imageError}</div>}
           <div className="assistant__box-bar">
+            <button
+              type="button"
+              className="assistant__attach"
+              onClick={() => fileRef.current?.click()}
+              disabled={images.length >= MAX_IMAGES}
+              title="Приложить картинку (или вставь ⌘V, перетащи)"
+            >
+              <Icon name="image" size={16} />
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                void addImages(imageFiles(e.target.files))
+                e.target.value = ''
+              }}
+            />
             <VoiceButton
               onTranscript={(text, source) =>
                 source === 'hotkey' && !busy ? void submit(text) : setInput((v) => (v ? v + ' ' : '') + text)
@@ -189,7 +304,7 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
                 <Icon name="stop" size={14} />
               </button>
             ) : (
-              <button type="submit" className="assistant__send" disabled={!input.trim()} title="Отправить (Enter)">
+              <button type="submit" className="assistant__send" disabled={!input.trim() && images.length === 0} title="Отправить (Enter)">
                 <Icon name="arrowUp" size={16} />
               </button>
             )}
@@ -203,7 +318,18 @@ export default function AssistantPanel({ onClose }: { onClose?: () => void }): J
 function ChatItem({ item }: { item: AiChatItem }): JSX.Element {
   switch (item.kind) {
     case 'user':
-      return <div className="assistant__msg assistant__msg--user">{item.text}</div>
+      return (
+        <>
+          {item.images?.length ? (
+            <div className="assistant__msg-images">
+              {item.images.map((url) => (
+                <img key={url} src={url} alt="" />
+              ))}
+            </div>
+          ) : null}
+          {item.text && <div className="assistant__msg assistant__msg--user">{item.text}</div>}
+        </>
+      )
     case 'assistant':
       return <AssistantText text={item.text} />
     case 'action':

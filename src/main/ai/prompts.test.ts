@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { codePromptRequest, systemPrompt, viewLine } from './prompts.ts'
+import { codePromptRequest, imagesLine, systemPrompt, viewLine } from './prompts.ts'
 import { toolDefinitions } from './tools.ts'
 
 const describe = (name: string): string => toolDefinitions.find((t) => t.name === name)!.description!
@@ -50,4 +50,16 @@ test('system prompt tells the assistant to research the web and cite sources', (
   assert.match(p, /web_fetch/)
   assert.match(p, /Никогда не говори, что у тебя/)
   assert.match(p, /## Источники/)
+})
+
+test('attached pictures are listed with their saved addresses', () => {
+  assert.equal(imagesLine([]), '')
+  const line = imagesLine([
+    { name: 'screen.png', url: 'attachment://a/screen.png' },
+    { name: 'photo.jpg', url: 'attachment://b/photo.jpg' }
+  ])
+  assert.match(line, /Приложены картинки \(2\)/)
+  assert.match(line, /1\) screen\.png: attachment:\/\/a\/screen\.png/)
+  assert.match(line, /2\) photo\.jpg/)
+  assert.match(systemPrompt(), /!\[название\]\(адрес\)/)
 })

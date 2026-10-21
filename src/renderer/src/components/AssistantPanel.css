@@ -1,4 +1,5 @@
 .assistant {
+  position: relative;
   --a-ok: var(--success);
   --a-err: var(--danger);
   display: flex;
@@ -431,4 +432,111 @@
     transform: translateY(-4px);
     opacity: 1;
   }
+}
+
+/* Pictures */
+.assistant__drop {
+  position: absolute;
+  inset: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  backdrop-filter: blur(4px);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  animation: fade-in 0.15s var(--ease);
+}
+.assistant__thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+.assistant__thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--hover);
+  animation: fade-in 0.2s var(--ease);
+}
+.assistant__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.assistant__thumb button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.assistant__thumb:hover button,
+.assistant__thumb button:focus-visible {
+  opacity: 1;
+}
+.assistant__image-error {
+  padding: 0 14px 4px;
+  font-size: 12px;
+  color: var(--a-err);
+}
+.assistant__attach {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  transition: background 0.15s, color 0.15s, transform 0.15s var(--spring);
+}
+.assistant__attach:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.assistant__attach:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.assistant__attach:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.assistant__msg-images {
+  align-self: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 85%;
+}
+.assistant__msg-images img {
+  max-width: 200px;
+  max-height: 160px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+  display: block;
+}
+.assistant__msg-images + .assistant__msg--user {
+  margin-top: -4px;
 }

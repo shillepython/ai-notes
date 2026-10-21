@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Store } from '../store'
-import type { AiChatItem, AiEffort, AiModelId, AiViewContext } from '@shared/ai'
-import { systemPrompt, timeStamp, viewLine } from './prompts'
+import type { AiChatItem, AiEffort, AiImageType, AiModelId, AiViewContext } from '@shared/ai'
+import { imagesLine, systemPrompt, timeStamp, viewLine } from './prompts'
 import { runTool, toolDefinitions, type ToolContext } from './tools'
 
 const MAX_STEPS = 25
@@ -79,6 +79,29 @@ export interface RunOptions {
   onItem(item: AiChatItem): void
 }
 
+/** A picture for the model, already saved as an attachment under `url`. */
+export interface ImageInput {
+  name: string
+  url: string
+  mediaType: AiImageType
+  base64: string
+}
+
+const NO_TEXT = '(Без текста: посмотри на картинку и пойми, что с ней сделать.)'
+
+/** The user turn: pictures first (the model reads them better that way), then the text. */
+export function userContent(head: string, text: string, images: ImageInput[]): Anthropic.Beta.BetaMessageParam['content'] {
+  const body = `${head}${imagesLine(images)}\n${text || (images.length ? NO_TEXT : '')}`
+  if (images.length === 0) return body
+  return [
+    ...images.map((img): Anthropic.Beta.BetaImageBlockParam => ({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mediaType, data: img.base64 }
+    })),
+    { type: 'text', text: body }
+  ]
+}
+
 /**
  * Holds one running conversation. History is append-only: a turn is committed
  * only when it finishes, so a cancelled or failed turn leaves the history as
@@ -91,7 +114,7 @@ export class Conversation {
     this.history = []
   }
 
-  async send(text: string, opts: RunOptions): Promise<void> {
+  async send(text: string, opts: RunOptions, images: ImageInput[] = []): Promise<void> {
     const client = new Anthropic({ apiKey: opts.apiKey })
     const { store, view } = opts
     const topic = view?.kind === 'topic' ? store.getTopic(view.topicId) : null
@@ -100,7 +123,7 @@ export class Conversation {
     const toolContext: ToolContext = { ...opts.services, defaultTopicId: topic?.id ?? null }
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...this.history,
-      { role: 'user', content: `${timeStamp()}${where}\n${text}` }
+      { role: 'user', content: userContent(`${timeStamp()}${where}`, text, images) }
     ]
     const useFallbacks = FALLBACK_MODELS.has(opts.model)
 

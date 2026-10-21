@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import type { AiChatItem } from '@shared/ai'
 import type { CaptureOpen } from '@shared/capture'
 import { useVoiceInput, type TranscriptSource } from '../voice/useVoiceInput'
+import { imageFiles, MAX_IMAGES, prepareImages, toAiImages, type PendingImage } from '../imageInput'
 
 // The quick capture "island": grows out of the notch, takes text or dictation, sends it to
 // the assistant and shows what was done, then tucks itself back in.
@@ -24,6 +25,12 @@ export default function Capture(): React.JSX.Element {
   const [items, setItems] = useState<AiChatItem[]>([])
   const [contentHeight, setContentHeight] = useState(0)
   const [hover, setHover] = useState(false)
+  // Pictures pasted (⌘V) or dropped onto the island go with the next message.
+  const [images, setImages] = useState<PendingImage[]>([])
+  const imagesRef = useRef(images)
+  imagesRef.current = images
+  const [sentImages, setSentImages] = useState<string[]>([])
+  const [imageError, setImageError] = useState<string | null>(null)
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -32,17 +39,59 @@ export default function Capture(): React.JSX.Element {
   phaseRef.current = phase
   const closingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const send = useCallback((raw: string) => {
-    const t = raw.trim()
-    if (!t) return
-    const id = crypto.randomUUID()
-    requestRef.current = id
-    setSent(t)
-    setText('')
-    setItems([])
-    setPhase('working')
-    void window.api.ai.capture(t, id)
+  const clearImages = useCallback((revoke: boolean) => {
+    if (revoke) imagesRef.current.forEach((img) => URL.revokeObjectURL(img.preview))
+    setImages([])
+    setImageError(null)
   }, [])
+
+  const send = useCallback(
+    (raw: string) => {
+      const t = raw.trim()
+      const attached = imagesRef.current
+      if (!t && attached.length === 0) return
+      const id = crypto.randomUUID()
+      requestRef.current = id
+      setSent(t)
+      setSentImages((prev) => {
+        prev.forEach((url) => URL.revokeObjectURL(url))
+        return attached.map((img) => img.preview)
+      })
+      clearImages(false)
+      setText('')
+      setItems([])
+      setPhase('working')
+      void window.api.ai.capture(t, id, toAiImages(attached))
+    },
+    [clearImages]
+  )
+
+  const addImages = useCallback(async (files: File[]) => {
+    if (files.length === 0) return
+    const { images: ready, error } = await prepareImages(files, MAX_IMAGES - imagesRef.current.length)
+    setImageError(error)
+    if (ready.length) setImages((prev) => [...prev, ...ready])
+    if (phaseRef.current === 'done') setPhase('input')
+    inputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const onPaste = (e: ClipboardEvent): void => {
+    const files = imageFiles(e.clipboardData.files)
+    if (files.length === 0) return
+    e.preventDefault()
+    void addImages(files)
+  }
+
+  const onDragOver = (e: DragEvent): void => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  const onDrop = (e: DragEvent): void => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault()
+    void addImages(imageFiles(e.dataTransfer.files))
+  }
 
   const onTranscript = useCallback(
     (t: string, source: TranscriptSource) => {
@@ -84,6 +133,7 @@ export default function Capture(): React.JSX.Element {
       setText('')
       setSent('')
       setItems([])
+      clearImages(true)
       requestRef.current = null
       // Start collapsed in the notch, then grow on the next frame so the transition runs.
       setOpen(false)
@@ -105,7 +155,7 @@ export default function Capture(): React.JSX.Element {
       offClose()
       offVoice()
     }
-  }, [close])
+  }, [close, clearImages])
 
   useEffect(
     () =>
@@ -129,7 +179,7 @@ export default function Capture(): React.JSX.Element {
   }, [close])
 
   // After a result, tuck away on its own unless the pointer is on it or the user is typing.
-  const autoClose = phase === 'done' && !hover && !text && voice.state === 'idle' && open
+  const autoClose = phase === 'done' && !hover && !text && images.length === 0 && voice.state === 'idle' && open
   useEffect(() => {
     if (!autoClose) return
     const t = setTimeout(close, AUTO_CLOSE_MS)
@@ -202,6 +252,9 @@ export default function Capture(): React.JSX.Element {
         setHover(false)
         capture().setInteractive(false)
       }}
+      onPaste={onPaste}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       <span className="island__ear island__ear--l" />
       <span className="island__ear island__ear--r" />
@@ -227,7 +280,13 @@ export default function Capture(): React.JSX.Element {
                   className="capture-input"
                   rows={1}
                   value={text}
-                  placeholder={phase === 'input' ? 'Задача, заметка или вопрос…' : 'Ещё что-нибудь?'}
+                  placeholder={
+                    images.length
+                      ? 'Что сделать с картинкой?'
+                      : phase === 'input'
+                        ? 'Задача, заметка, вопрос или ⌘V картинку…'
+                        : 'Ещё что-нибудь?'
+                  }
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={onKeyDown}
                   spellCheck={false}
@@ -241,13 +300,33 @@ export default function Capture(): React.JSX.Element {
               >
                 <MicIcon />
               </button>
-              {text.trim() && phase !== 'working' && (
+              {(text.trim() || images.length > 0) && phase !== 'working' && (
                 <button className="icon-btn icon-btn--send" onClick={() => send(text)} title="Отправить (↵)">
                   <ArrowIcon />
                 </button>
               )}
             </div>
           )}
+
+          {images.length > 0 && (
+            <div className="thumbs">
+              {images.map((img) => (
+                <div key={img.id} className="thumb" title={img.name}>
+                  <img src={img.preview} alt={img.name} />
+                  <button
+                    onClick={() => {
+                      URL.revokeObjectURL(img.preview)
+                      setImages((prev) => prev.filter((i) => i.id !== img.id))
+                    }}
+                    title="Убрать"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {imageError && <div className="note note--error">{imageError}</div>}
 
           {voice.modelProgress !== null && (
             <div className="note">Загружаю модель распознавания… {Math.round(voice.modelProgress)}%</div>
@@ -256,7 +335,14 @@ export default function Capture(): React.JSX.Element {
 
           {(phase !== 'input' || items.length > 0) && (
             <div className="result">
-              {sent && <div className="result__sent">«{sent}»</div>}
+              {(sent || sentImages.length > 0) && (
+                <div className="result__sent">
+                  {sentImages.map((url) => (
+                    <img key={url} src={url} alt="" />
+                  ))}
+                  {sent && <span>«{sent}»</span>}
+                </div>
+              )}
               {actions.map((a, i) => (
                 <div key={i} className={`result__action${a.kind === 'action' && !a.ok ? ' result__action--fail' : ''}`}>
                   <CheckIcon />

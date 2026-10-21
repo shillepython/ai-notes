@@ -30,9 +30,20 @@ export type AiViewContext =
   | { kind: 'topic'; topicId: string }
   | { kind: 'note'; noteId: string }
 
+/** Formats the API takes as vision input; anything else is re-encoded in the renderer first. */
+export const AI_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+export type AiImageType = (typeof AI_IMAGE_TYPES)[number]
+
+/** A picture sent along with a message (pasted, dropped or picked). */
+export interface AiImage {
+  name: string
+  mediaType: AiImageType
+  data: Uint8Array
+}
+
 /** One visible line in the chat panel. */
 export type AiChatItem =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; /** Preview URLs of attached pictures. */ images?: string[] }
   | { kind: 'assistant'; text: string }
   | { kind: 'action'; tool: string; summary: string; ok: boolean }
   | { kind: 'error'; text: string }
@@ -51,12 +62,12 @@ export interface AiApi {
    * Sends a message; results arrive through onEvent tagged with requestId. The caller picks
    * the id before sending, because events can arrive before this promise resolves.
    */
-  send(text: string, requestId: string): Promise<void>
+  send(text: string, requestId: string, images?: AiImage[]): Promise<void>
   /**
    * Like send, for the quick capture window: a separate short conversation (kept for a few
    * minutes for follow-ups) that never touches the main panel's chat.
    */
-  capture(text: string, requestId: string): Promise<void>
+  capture(text: string, requestId: string, images?: AiImage[]): Promise<void>
   cancel(): Promise<void>
   /** Tells the assistant what is open now. Call on every view change. */
   setViewContext(view: AiViewContext): Promise<void>

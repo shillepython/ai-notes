@@ -52,7 +52,8 @@ function resolve(url: string): string | null {
   }
 }
 
-function saveBytes(name: string, bytes: Uint8Array): Attachment {
+/** Also used by the assistant to keep pictures sent in chat, so they can go into a note. */
+export function saveBytes(name: string, bytes: Uint8Array): Attachment {
   const id = randomUUID()
   const clean = safeName(name)
   mkdirSync(join(dir, id), { recursive: true })

@@ -37,6 +37,16 @@ const RESEARCH_RULES = [
   '- Если надёжных данных не нашлось, так и скажи и запиши, что удалось найти.'
 ]
 
+const IMAGE_RULES = [
+  'Картинки: пользователь может приложить к сообщению картинки (скриншоты, фото, документы). Ты их видишь.',
+  '- Делай с картинкой то, о чём просят: «сделай задачи по скрину» → create_tasks из того, что на нём;',
+  '  «запиши», «сохрани» → заметка с распознанным текстом; «что тут», «переведи», «посчитай» → ответ по картинке.',
+  '- Без текста или с неясной просьбой: коротко опиши, что видишь, и предложи 1-2 подходящих действия.',
+  '- Текст с картинки переписывай точно, не додумывай неразборчивое: так и пометь «[неразборчиво]».',
+  '- Каждая картинка сохранена в приложении, её адрес указан в сообщении. Если пользователь просит сохранить',
+  '  или приложить саму картинку к заметке или задаче, вставь её Markdown-ом `![название](адрес)`.'
+]
+
 export function systemPrompt(now: Date = new Date()): string {
   const today = now.toLocaleDateString('sv-SE') // YYYY-MM-DD in local time
   const weekday = now.toLocaleDateString('ru-RU', { weekday: 'long' })
@@ -91,6 +101,8 @@ export function systemPrompt(now: Date = new Date()): string {
     '',
     ...RESEARCH_RULES,
     '',
+    ...IMAGE_RULES,
+    '',
     ...FORMATTING_RULES,
     '',
     'Действуй сразу, без лишних подтверждений. После действий ответь коротко, одним-двумя предложениями,',
@@ -106,6 +118,13 @@ export function viewLine(open: { topic?: string; note?: { id: string; title: str
   if (open.topic) return ` [Открыт топик «${open.topic}»]`
   if (open.note) return ` [Открыта заметка «${open.note.title || 'Без названия'}» (id ${open.note.id})]`
   return ''
+}
+
+/** Lists pictures attached to a message with the addresses they were saved under. */
+export function imagesLine(images: { name: string; url: string }[]): string {
+  if (images.length === 0) return ''
+  const list = images.map((img, i) => `${i + 1}) ${img.name}: ${img.url}`).join('; ')
+  return ` [Приложены картинки (${images.length}), сохранены как: ${list}]`
 }
 
 /** Prefixed to every user message so the model knows the time for "через 20 минут" without busting the prompt cache. */
