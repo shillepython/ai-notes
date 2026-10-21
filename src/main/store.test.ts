@@ -155,3 +155,46 @@ test('trash: a trashed topic hides from its tasks and gives them back on restore
   assert.equal(s.emptyTrash(), 1)
   assert.equal(s.getTask(task.id)!.topicId, null)
 })
+
+test('recurring tasks: completing creates the next occurrence, reopening undoes it', () => {
+  const s = fresh()
+  const t = s.createTask({
+    title: 'Планёрка',
+    description: 'Созвон\n- [x] повестка\n- [ ] итоги',
+    dueDate: '2020-01-06',
+    remindAt: '2020-01-06T09:00:00',
+    recurrence: { freq: 'weekly', interval: 1, weekdays: [1] }
+  })
+  s.completeTask(t.id, { comment: 'провёл' })
+  const open = s.listTasks({ status: 'todo' })
+  assert.equal(open.length, 1)
+  const next = open[0]
+  assert.notEqual(next.id, t.id)
+  assert.ok(next.dueDate! > new Date().toISOString().slice(0, 10) || next.dueDate === new Date().toLocaleDateString('sv-SE'))
+  assert.equal(new Date(next.dueDate! + 'T00:00:00').getDay(), 1)
+  assert.equal(next.description, 'Созвон\n- [ ] повестка\n- [ ] итоги')
+  assert.deepEqual(next.recurrence, { freq: 'weekly', interval: 1, weekdays: [1] })
+  assert.equal(new Date(next.remindAt!).getHours(), 9)
+  assert.equal(s.getTask(t.id)!.recurrence, null)
+
+  const reopened = s.reopenTask(t.id)
+  assert.deepEqual(reopened.recurrence, { freq: 'weekly', interval: 1, weekdays: [1] })
+  assert.equal(s.getTask(next.id), null)
+  assert.equal(s.listTasks().length, 1)
+})
+
+test('recurring tasks: a rule without a due date gets the first occurrence', () => {
+  const s = fresh()
+  const t = s.createTask({ title: 'Зарядка', recurrence: { freq: 'daily', interval: 1 } })
+  assert.equal(t.dueDate, new Date().toLocaleDateString('sv-SE'))
+})
+
+test('links: renaming a note rewrites [[links]] to it', () => {
+  const s = fresh()
+  const target = s.createNote({ title: 'Токены' })
+  const n = s.createNote({ title: 'Обзор', content: 'см. [[токены]] и [[Другое]]' })
+  const t = s.createTask({ title: 'Разобрать', description: 'по заметке [[Токены]]' })
+  s.updateNote(target.id, { title: 'Токены LLM' })
+  assert.equal(s.getNote(n.id)!.content, 'см. [[Токены LLM]] и [[Другое]]')
+  assert.equal(s.getTask(t.id)!.description, 'по заметке [[Токены LLM]]')
+})

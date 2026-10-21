@@ -20,6 +20,8 @@ import type {
   TrashKind
 } from '../shared/types'
 import { TOPIC_COLORS, trashItemId } from '../shared/types.ts'
+import { firstOccurrence, nextOccurrence, normalizeRecurrence, toISODate, type Recurrence } from '../shared/recurrence.ts'
+import { linksTo, renameLinks, resetChecklist } from '../shared/links.ts'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS notes (
@@ -99,6 +101,7 @@ const toTask = (r: Row): Task => ({
   dueDate: (r.due_date as string | null) ?? null,
   remindAt: (r.remind_at as string | null) ?? null,
   remindedAt: (r.reminded_at as string | null) ?? null,
+  recurrence: r.recurrence ? (JSON.parse(r.recurrence as string) as Recurrence) : null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
   completedAt: (r.completed_at as string | null) ?? null
@@ -120,6 +123,11 @@ const matches = (query: string | undefined, ...fields: string[]): boolean => {
 }
 
 const now = (): string => new Date().toISOString()
+
+/** Today as a local calendar day, YYYY-MM-DD. */
+const localToday = (): string => toISODate(new Date())
+
+const checkRecurrence = (rule: Recurrence | null | undefined): Recurrence | null => (rule ? normalizeRecurrence(rule) : null)
 
 /**
  * Local data layer for notes and tasks. All methods are synchronous.
@@ -147,6 +155,9 @@ export class Store extends EventEmitter {
     }
     if (!cols.includes('remind_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN remind_at TEXT')
     if (!cols.includes('reminded_at')) this.db.exec('ALTER TABLE tasks ADD COLUMN reminded_at TEXT')
+    if (!cols.includes('recurrence')) this.db.exec('ALTER TABLE tasks ADD COLUMN recurrence TEXT')
+    // A done recurring task points at the occurrence created from it, so reopening can undo that.
+    if (!cols.includes('next_task_id')) this.db.exec('ALTER TABLE tasks ADD COLUMN next_task_id TEXT')
     // Soft delete: a set deleted_at means the row is in the trash.
     for (const table of Object.values(TABLES)) {
       const tableCols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((c) => c.name)
@@ -275,6 +286,7 @@ export class Store extends EventEmitter {
       .prepare('UPDATE notes SET title = ?, content = ?, updated_at = ? WHERE id = ?')
       .run(next.title, next.content, next.updatedAt, id)
     this.emitChange({ entity: 'note', action: 'updated', id })
+    this.renameLinksTo(current.title, next.title, id)
     return next
   }
 
@@ -314,11 +326,14 @@ export class Store extends EventEmitter {
     const ts = now()
     const id = randomUUID()
     const status = input.status ?? 'todo'
+    const recurrence = checkRecurrence(input.recurrence)
+    // A recurring task always has a date: the first occurrence from today.
+    const dueDate = input.dueDate ?? (recurrence ? firstOccurrence(recurrence, localToday()) : null)
     this.db
       .prepare(
         `INSERT INTO tasks (id, title, description, status, priority, due_date, topic_id, sort_order, remind_at,
-           created_at, updated_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           recurrence, created_at, updated_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -326,10 +341,11 @@ export class Store extends EventEmitter {
         input.description ?? '',
         status,
         input.priority ?? 'medium',
-        input.dueDate ?? null,
+        dueDate,
         this.checkTopicId(input.topicId),
         input.sortOrder ?? Date.now(),
         checkTimestamp(input.remindAt),
+        recurrence ? JSON.stringify(recurrence) : null,
         ts,
         ts,
         status === 'done' ? ts : null
@@ -345,13 +361,38 @@ export class Store extends EventEmitter {
     const next: Task = { ...current, ...stripUndefined(patch), updatedAt: ts }
     next.topicId = this.checkTopicId(next.topicId)
     next.remindAt = checkTimestamp(next.remindAt)
+    next.recurrence = checkRecurrence(next.recurrence)
+    if (next.recurrence && !next.dueDate) next.dueDate = firstOccurrence(next.recurrence, localToday())
     if (next.remindAt !== current.remindAt) next.remindedAt = null
-    if (next.status === 'done' && current.status !== 'done') next.completedAt = ts
-    if (next.status !== 'done') next.completedAt = null
+    let nextTaskId = (this.db.prepare('SELECT next_task_id FROM tasks WHERE id = ?').get(id) as Row).next_task_id as
+      | string
+      | null
+    if (next.status === 'done' && current.status !== 'done') {
+      next.completedAt = ts
+      // Completing a recurring task schedules the next occurrence; the series moves on to it.
+      if (next.recurrence) {
+        nextTaskId = this.createNextOccurrence(current, next).id
+        next.recurrence = null
+      }
+    }
+    if (next.status !== 'done') {
+      next.completedAt = null
+      // Reopening (e.g. "undo") takes the series back from an occurrence that has not been done yet.
+      if (current.status === 'done' && nextTaskId) {
+        const successor = this.getTask(nextTaskId)
+        if (successor && successor.status !== 'done') {
+          next.recurrence ??= successor.recurrence
+          this.db.prepare('DELETE FROM tasks WHERE id = ?').run(successor.id)
+          this.emitChange({ entity: 'task', action: 'purged', id: successor.id })
+        }
+        nextTaskId = null
+      }
+    }
     this.db
       .prepare(
         `UPDATE tasks SET title = ?, description = ?, status = ?, priority = ?, due_date = ?, topic_id = ?,
-           sort_order = ?, remind_at = ?, reminded_at = ?, updated_at = ?, completed_at = ? WHERE id = ?`
+           sort_order = ?, remind_at = ?, reminded_at = ?, recurrence = ?, next_task_id = ?, updated_at = ?,
+           completed_at = ? WHERE id = ?`
       )
       .run(
         next.title,
@@ -363,12 +404,77 @@ export class Store extends EventEmitter {
         next.sortOrder,
         next.remindAt,
         next.remindedAt,
+        next.recurrence ? JSON.stringify(next.recurrence) : null,
+        nextTaskId,
         next.updatedAt,
         next.completedAt,
         id
       )
     this.emitChange({ entity: 'task', action: 'updated', id })
+    if (next.title !== current.title) this.renameLinksTo(current.title, next.title, id)
     return next
+  }
+
+  /**
+   * Creates the occurrence after `task`: same fields, the next due date, the reminder moved
+   * by as many days, checkboxes unchecked. `current` is the task before it was completed,
+   * so a completion comment does not carry over.
+   */
+  private createNextOccurrence(current: Task, next: Task): Task {
+    const rule = next.recurrence!
+    const todayStr = localToday()
+    const base = next.dueDate ?? (next.remindAt ? toISODate(new Date(next.remindAt)) : todayStr)
+    const due = nextOccurrence(rule, base, todayStr)
+    let remindAt: string | null = null
+    if (next.remindAt) {
+      const days = Math.round((Date.parse(`${due}T12:00:00`) - Date.parse(`${base}T12:00:00`)) / 86_400_000)
+      const d = new Date(next.remindAt)
+      d.setDate(d.getDate() + days)
+      remindAt = d.toISOString()
+    }
+    return this.createTask({
+      title: next.title,
+      description: resetChecklist(current.description),
+      priority: next.priority,
+      topicId: next.topicId,
+      sortOrder: next.sortOrder,
+      dueDate: due,
+      remindAt,
+      recurrence: rule
+    })
+  }
+
+  /** The occurrence created when this recurring task was completed, or null. */
+  getNextOccurrence(id: string): Task | null {
+    const row = this.db.prepare('SELECT next_task_id FROM tasks WHERE id = ?').get(id) as Row | undefined
+    return row?.next_task_id ? this.getTask(row.next_task_id as string) : null
+  }
+
+  // ---- Links ----
+
+  /**
+   * After a note or task is renamed, rewrites [[old title]] to [[new title]] everywhere,
+   * unless another note or open task still has the old title (then the links keep pointing to it).
+   * Done tasks are ignored: past occurrences of a recurring task share its title.
+   */
+  private renameLinksTo(oldTitle: string, newTitle: string, selfId: string): void {
+    if (!oldTitle.trim() || !newTitle.trim() || oldTitle.trim() === newTitle.trim()) return
+    const key = oldTitle.trim().toLocaleLowerCase()
+    const sameTitle = (t: string): boolean => t.trim().toLocaleLowerCase() === key
+    const notes = this.listNotes()
+    const tasks = this.listTasks()
+    if (notes.some((n) => n.id !== selfId && sameTitle(n.title)) || tasks.some((t) => t.id !== selfId && t.status !== 'done' && sameTitle(t.title)))
+      return
+    for (const n of notes)
+      if (linksTo(n.content, oldTitle)) {
+        this.db.prepare('UPDATE notes SET content = ? WHERE id = ?').run(renameLinks(n.content, oldTitle, newTitle), n.id)
+        this.emitChange({ entity: 'note', action: 'updated', id: n.id })
+      }
+    for (const t of tasks)
+      if (linksTo(t.description, oldTitle)) {
+        this.db.prepare('UPDATE tasks SET description = ? WHERE id = ?').run(renameLinks(t.description, oldTitle, newTitle), t.id)
+        this.emitChange({ entity: 'task', action: 'updated', id: t.id })
+      }
   }
 
   completeTask(id: string, opts: CompleteTaskOptions = {}): Task {

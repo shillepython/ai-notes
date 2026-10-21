@@ -1,3 +1,7 @@
+import type { Recurrence } from './recurrence'
+
+export type { Recurrence } from './recurrence'
+
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
 export type TaskPriority = 'low' | 'medium' | 'high'
 
@@ -49,6 +53,8 @@ export interface Task {
   remindAt: string | null
   /** ISO timestamp when the reminder was shown; reset when remindAt changes */
   remindedAt: string | null
+  /** Repeat rule; completing the task creates the next occurrence. Null for one-off tasks. */
+  recurrence: Recurrence | null
   createdAt: string
   updatedAt: string
   completedAt: string | null
@@ -87,10 +93,12 @@ export interface TaskInput {
   sortOrder?: number
   /** ISO timestamp */
   remindAt?: string | null
+  /** A task without a due date gets the first occurrence as its due date */
+  recurrence?: Recurrence | null
 }
 
 export type TaskPatch = Partial<
-  Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'sortOrder' | 'remindAt'>
+  Pick<Task, 'title' | 'description' | 'status' | 'priority' | 'dueDate' | 'topicId' | 'sortOrder' | 'remindAt' | 'recurrence'>
 >
 
 export interface CompleteTaskOptions {

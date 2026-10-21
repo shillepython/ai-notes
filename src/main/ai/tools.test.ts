@@ -151,3 +151,28 @@ test('create_note with a template lays the note out in its sections', () => {
   assert.match(missing.content, /План проекта/)
   assert.equal(executeTool(s, 'create_note', {}).isError, true)
 })
+
+test('recurring task by tool: repeat, complete returns the next occurrence; get_links finds backlinks', () => {
+  const s = fresh()
+  const res = executeTool(s, 'create_tasks', {
+    tasks: [{ title: 'Отчёт', description: '- [x] собрать\n- [ ] отправить\nсм. [[Шаблон отчёта]]', repeat: { every: 'week', weekdays: ['fri'] } }]
+  })
+  assert.equal(res.isError, false)
+  const [task] = JSON.parse(res.content)
+  assert.equal(task.repeat, 'каждую пятницу')
+  assert.equal(task.subtasks, '1/2')
+  assert.deepEqual(task.links, ['Шаблон отчёта'])
+
+  const done = JSON.parse(executeTool(s, 'complete_task', { id: task.id }).content)
+  assert.equal(done.next.repeat, 'каждую пятницу')
+  assert.equal(done.next.subtasks, '0/2')
+
+  const note = s.createNote({ title: 'Шаблон отчёта' })
+  const links = JSON.parse(executeTool(s, 'get_links', { kind: 'note', id: note.id }).content)
+  assert.equal(links.backlinks.length, 2)
+  const own = JSON.parse(executeTool(s, 'get_links', { kind: 'task', id: done.next.id }).content)
+  assert.equal(own.links[0].id, note.id)
+
+  executeTool(s, 'update_task', { id: done.next.id, repeat: null })
+  assert.equal(s.getTask(done.next.id)!.recurrence, null)
+})

@@ -5,6 +5,16 @@ import type { Note, Task, Topic } from '@shared/types'
 import { trashItemId } from '../../shared/types.ts'
 import { applyTemplate, findTemplate } from '../../shared/templates.ts'
 import { listTemplates } from '../templates.ts'
+import { describeRecurrence, type Recurrence } from '../../shared/recurrence.ts'
+import {
+  checklistProgress,
+  extractLinks,
+  findBacklinks,
+  linkTargetId,
+  linkTargetTitle,
+  resolveLink,
+  type LinkTarget
+} from '../../shared/links.ts'
 
 // Tools the assistant can call. Each one maps onto the data service in
 // ../store, so every change the AI makes goes through the same code path
@@ -40,6 +50,27 @@ function tool<S extends z.ZodType>(def: ToolDef<S>): ToolDef<S> {
   return def
 }
 
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
+const FREQ = { day: 'daily', week: 'weekly', month: 'monthly', year: 'yearly' } as const
+const repeat = z
+  .object({
+    every: z.enum(['day', 'week', 'month', 'year']),
+    interval: z.number().int().min(1).optional().describe('Каждые N единиц, по умолчанию 1'),
+    weekdays: z.array(z.enum(WEEKDAYS)).optional().describe('Только для week: дни недели, например ["mon","thu"]')
+  })
+  .strict()
+  .describe(
+    'Повтор задачи. «Каждый день» {every:"day"}, «по будням» {every:"week",weekdays:["mon","tue","wed","thu","fri"]}, ' +
+      '«каждый понедельник» {every:"week",weekdays:["mon"]}, «раз в две недели» {every:"week",interval:2}, ' +
+      '«каждое 1 число» {every:"month"} с dueDate на 1 число'
+  )
+
+const toRecurrence = (r: z.infer<typeof repeat>): Recurrence => ({
+  freq: FREQ[r.every],
+  interval: r.interval ?? 1,
+  ...(r.weekdays?.length ? { weekdays: r.weekdays.map((d) => WEEKDAYS.indexOf(d) + 1) } : {})
+})
+
 const topicName = z.string().min(1).describe('Название топика, например «Работа». Если такого нет, он будет создан')
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Цвет в формате #RRGGBB')
 
@@ -53,8 +84,18 @@ const taskView = (store: Store, t: Task) => ({
   remindAt: toLocal(t.remindAt),
   reminded: t.remindedAt !== null,
   topic: t.topicId ? (store.getTopic(t.topicId)?.name ?? null) : null,
+  repeat: t.recurrence ? describeRecurrence(t.recurrence) : null,
+  ...subtasksView(t.description),
+  ...(extractLinks(t.description).length ? { links: extractLinks(t.description) } : {}),
   completedAt: t.completedAt
 })
+
+const subtasksView = (text: string) => {
+  const { done, total } = checklistProgress(text)
+  return total ? { subtasks: `${done}/${total}` } : {}
+}
+
+const linkView = (t: LinkTarget) => ({ kind: t.kind, id: linkTargetId(t), title: linkTargetTitle(t) })
 
 const topicView = (store: Store, t: Topic) => ({
   id: t.id,
@@ -105,7 +146,9 @@ const TOOLS = {
       'Создаёт одну или несколько задач (дел, которые потом закрывают). Только когда пользователь просит задачу, ' +
       'план, напоминание или «нужно сделать». Если он просит заметку, «запиши» или «сохрани», используй create_note. ' +
       '«Напомни …» = задача с remindAt: в это время придёт уведомление macOS со звуком. ' +
-      'Независимые дела = отдельные задачи; шаги одного дела = чекбоксы `- [ ]` в description этой задачи.',
+      'Независимые дела = отдельные задачи; шаги одного дела = чекбоксы `- [ ]` в description этой задачи (подзадачи, ' +
+      'прогресс 3/5 видно в списке). «Каждый день/понедельник …» = задача с repeat: после выполнения сама появится ' +
+      'следующая. Связь с заметкой или задачей: [[Название]] в description.',
     schema: z
       .object({
         tasks: z
@@ -119,6 +162,7 @@ const TOOLS = {
                   .describe('Markdown: строка контекста, затем шаги чекбоксами `- [ ] шаг`'),
                 dueDate: isoDate.optional().describe('Срок в формате YYYY-MM-DD'),
                 remindAt: localDateTime.optional(),
+                repeat: repeat.optional(),
                 priority: priority.optional(),
                 topic: topicName
                   .nullable()
@@ -137,7 +181,7 @@ const TOOLS = {
     run(store, { tasks, topic }, ctx) {
       const newTopics: string[] = []
       const fallbackTopicId = ctx.defaultTopicId && store.getTopic(ctx.defaultTopicId) ? ctx.defaultTopicId : null
-      const created = tasks.map(({ topic: own, remindAt, ...t }) => {
+      const created = tasks.map(({ topic: own, remindAt, repeat, ...t }) => {
         const name = own !== undefined ? own : topic
         let topicId: string | null = name === undefined ? fallbackTopicId : null
         if (name) {
@@ -145,14 +189,21 @@ const TOOLS = {
           if (res.created) newTopics.push(res.topic.name)
           topicId = res.topic.id
         }
-        return store.createTask({ ...t, topicId, remindAt: remindAt ? fromLocal(remindAt) : null })
+        return store.createTask({
+          ...t,
+          topicId,
+          remindAt: remindAt ? fromLocal(remindAt) : null,
+          recurrence: repeat ? toRecurrence(repeat) : null
+        })
       })
       const reminders = created.filter((t) => t.remindAt).length
+      const repeating = created.filter((t) => t.recurrence).length
       return {
         result: created.map((t) => taskView(store, t)),
         summary:
           `Создано задач: ${created.length} (${created.map((t) => t.title).join(', ')})` +
           (reminders ? `; напоминаний: ${reminders}` : '') +
+          (repeating ? `; повторяющихся: ${repeating}` : '') +
           createdTopicsNote(newTopics)
       }
     }
@@ -188,12 +239,17 @@ const TOOLS = {
 
   complete_task: tool({
     description:
-      'Отмечает задачу выполненной. Если пользователь рассказал, как/что сделано, передай это в comment, оно добавится в описание.',
+      'Отмечает задачу выполненной. Если пользователь рассказал, как/что сделано, передай это в comment, оно добавится в описание. ' +
+      'У повторяющейся задачи сразу появится следующая (она в поле next).',
     schema: z.object({ id: z.string(), comment: z.string().optional() }).strict(),
     run(store, { id, comment }) {
       requireTask(store, id)
       const task = store.completeTask(id, { comment })
-      return { result: taskView(store, task), summary: `Закрыта задача «${task.title}»` }
+      const next = store.getNextOccurrence(id)
+      return {
+        result: { ...taskView(store, task), ...(next ? { next: taskView(store, next) } : {}) },
+        summary: `Закрыта задача «${task.title}»` + (next ? `; следующая ${next.dueDate}` : '')
+      }
     }
   }),
 
@@ -209,8 +265,8 @@ const TOOLS = {
 
   update_task: tool({
     description:
-      'Меняет поля задачи: название, описание, статус, приоритет, срок, напоминание. Передавай только то, что меняется. ' +
-      'Чтобы отметить выполненный шаг, передай описание целиком с этим шагом как `- [x]`.',
+      'Меняет поля задачи: название, описание, статус, приоритет, срок, напоминание, повтор. Передавай только то, что меняется. ' +
+      'Чтобы отметить выполненный шаг (подзадачу), передай описание целиком с этим шагом как `- [x]`.',
     schema: z
       .object({
         id: z.string(),
@@ -220,10 +276,11 @@ const TOOLS = {
         priority: priority.optional(),
         dueDate: isoDate.nullable().optional().describe('null убирает срок'),
         remindAt: localDateTime.nullable().optional().describe('Новое время напоминания (местное, YYYY-MM-DDTHH:mm); null убирает'),
-        topic: topicName.nullable().optional().describe('Перенести в топик (создастся, если нет); null убирает из топика')
+        topic: topicName.nullable().optional().describe('Перенести в топик (создастся, если нет); null убирает из топика'),
+        repeat: repeat.nullable().optional().describe('Новый повтор; null делает задачу разовой')
       })
       .strict(),
-    run(store, { id, topic, remindAt, ...patch }) {
+    run(store, { id, topic, remindAt, repeat, ...patch }) {
       requireTask(store, id)
       const newTopics: string[] = []
       let topicId: string | null | undefined
@@ -236,7 +293,8 @@ const TOOLS = {
       const task = store.updateTask(id, {
         ...patch,
         topicId,
-        remindAt: remindAt === undefined ? undefined : remindAt && fromLocal(remindAt)
+        remindAt: remindAt === undefined ? undefined : remindAt && fromLocal(remindAt),
+        recurrence: repeat === undefined ? undefined : repeat && toRecurrence(repeat)
       })
       return { result: taskView(store, task), summary: `Обновлена задача «${task.title}»${createdTopicsNote(newTopics)}` }
     }
@@ -434,6 +492,28 @@ const TOOLS = {
     run(store, input) {
       const notes = store.listNotes(input)
       return { result: notes.map((n) => noteView(n)), summary: `Найдено заметок: ${notes.length}` }
+    }
+  }),
+
+  get_links: tool({
+    description:
+      'Связи заметки или задачи: на что она ссылается через [[Название]] и что ссылается на неё (обратные ссылки). ' +
+      'Чтобы связать, допиши [[Название]] в текст заметки (update_note append) или описание задачи (update_task).',
+    schema: z.object({ kind: z.enum(['note', 'task']), id: z.string() }).strict(),
+    run(store, { kind, id }) {
+      const item = kind === 'note' ? requireNote(store, id) : requireTask(store, id)
+      const text = 'content' in item ? item.content : item.description
+      const notes = store.listNotes()
+      const tasks = store.listTasks()
+      const links = extractLinks(text).map((title) => {
+        const target = resolveLink(title, notes, tasks)
+        return target ? linkView(target) : { title, missing: true }
+      })
+      const backlinks = findBacklinks(item.title, notes, tasks, id).map(linkView)
+      return {
+        result: { links, backlinks },
+        summary: `Связи «${item.title}»: ссылок ${links.length}, обратных ${backlinks.length}`
+      }
     }
   }),
 
