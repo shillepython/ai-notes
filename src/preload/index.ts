@@ -1,5 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
+  Attachment,
   CompleteTaskOptions,
   DataChange,
   Note,
@@ -16,6 +17,7 @@ import type {
   TrashItem,
   TrashKind
 } from '../shared/types'
+import type { NoteTemplate } from '../shared/templates'
 import { aiApi } from './ai'
 import { voiceApi } from './voice'
 import { dataApi } from './data'
@@ -57,6 +59,33 @@ const api = {
     delete: (kind: TrashKind, id: string): Promise<boolean> => ipcRenderer.invoke('trash:delete', kind, id),
     /** Erases everything in the trash; returns how many items */
     empty: (): Promise<number> => ipcRenderer.invoke('trash:empty')
+  },
+  attachments: {
+    /** Copies pasted or dropped files into the app's storage. Files from disk are copied by path, pasted ones by bytes. */
+    add: async (files: File[]): Promise<Attachment[]> => {
+      const out: Attachment[] = []
+      for (const file of files) {
+        const path = webUtils.getPathForFile(file)
+        if (path) out.push(...((await ipcRenderer.invoke('attachments:copy', [path])) as Attachment[]))
+        else {
+          const name = file.name || `Вставка ${new Date().toLocaleString('sv-SE').replace(/:/g, '-')}.${file.type.split('/')[1] || 'bin'}`
+          out.push(await ipcRenderer.invoke('attachments:save', name, new Uint8Array(await file.arrayBuffer())))
+        }
+      }
+      return out
+    },
+    /** Opens the system file picker; returns the copied files, or [] if cancelled */
+    pick: (): Promise<Attachment[]> => ipcRenderer.invoke('attachments:pick'),
+    /** Opens an attachment:// file in its default app */
+    open: (url: string): Promise<boolean> => ipcRenderer.invoke('attachments:open', url),
+    reveal: (url: string): Promise<boolean> => ipcRenderer.invoke('attachments:reveal', url)
+  },
+  templates: {
+    /** Built-in first, then the user's own */
+    list: (): Promise<NoteTemplate[]> => ipcRenderer.invoke('templates:list'),
+    create: (input: { name: string; title?: string; content: string; icon?: string }): Promise<NoteTemplate> =>
+      ipcRenderer.invoke('templates:create', input),
+    delete: (id: string): Promise<boolean> => ipcRenderer.invoke('templates:delete', id)
   },
   /** Claude assistant: API key settings and chat. */
   ai: aiApi,

@@ -1,7 +1,8 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import type { Store } from './store'
+import { createTemplate, deleteTemplate, listTemplates } from './templates'
 
-/** Exposes the store to the renderer as `notes:*` / `tasks:*` / `topics:*` / `trash:*` channels and broadcasts `data:changed`. */
+/** Exposes the store to the renderer as `notes:*` / `tasks:*` / `topics:*` / `trash:*` / `templates:*` channels and broadcasts `data:changed`. */
 export function registerIpc(store: Store): void {
   ipcMain.handle('notes:list', (_e, q) => store.listNotes(q))
   ipcMain.handle('notes:get', (_e, id) => store.getNote(id))
@@ -27,6 +28,10 @@ export function registerIpc(store: Store): void {
   ipcMain.handle('trash:restore', (_e, kind, id) => store.restoreFromTrash(kind, id))
   ipcMain.handle('trash:delete', (_e, kind, id) => store.deleteForever(kind, id))
   ipcMain.handle('trash:empty', () => store.emptyTrash())
+
+  ipcMain.handle('templates:list', () => listTemplates())
+  ipcMain.handle('templates:create', (_e, input) => createTemplate(input))
+  ipcMain.handle('templates:delete', (_e, id) => deleteTemplate(id))
 
   store.on('changed', (change) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.send('data:changed', change)

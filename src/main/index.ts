@@ -6,6 +6,8 @@ import { registerAiIpc } from './ai/ipc'
 import { registerVoice } from './voice'
 import { startReminders } from './reminders'
 import { prepareDatabase, registerData } from './data'
+import { registerAttachments, registerAttachmentScheme, SCHEME } from './attachments'
+import { initTemplates } from './templates'
 
 // Keep data in ~/Library/Application Support/ai-notes for both `npm run dev` and the
 // packaged "AI Notes.app" (whose name would otherwise pick a different folder).
@@ -13,6 +15,8 @@ app.setPath('userData', join(app.getPath('appData'), 'ai-notes'))
 
 // One window per app: a second launch (e.g. from the Dock while running) focuses it.
 if (!app.requestSingleInstanceLock()) app.exit(0)
+
+registerAttachmentScheme()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -49,6 +53,7 @@ function createWindow(): void {
   })
   // Links in notes and assistant answers open in the browser instead of replacing the app.
   win.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith(`${SCHEME}:`)) return event.preventDefault()
     if (url.startsWith('http://') || url.startsWith('https://')) {
       if (process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) return
       event.preventDefault()
@@ -75,6 +80,8 @@ app.whenReady().then(() => {
   const store = initStore(dbPath)
   registerIpc(store)
   registerData(store, dbPath)
+  initTemplates(join(app.getPath('userData'), 'templates.json'))
+  registerAttachments(store, app.getPath('userData'))
   registerAiIpc()
   registerVoice(() => {
     if (!mainWindow) createWindow()

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Task } from '@shared/types'
 import type { SyncStatus } from '@shared/data'
+import { applyTemplate, type NoteTemplate } from '@shared/templates'
+import { useTemplates } from './templates'
 import { useData } from './useData'
 import { TASK_VIEWS, type View } from './taskViews'
 import { today } from './dates'
@@ -36,6 +38,7 @@ function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean
 
 export default function App(): React.JSX.Element {
   const { notes, tasks, topics, trash } = useData()
+  const templates = useTemplates()
   const [view, setView] = useState<View>({ kind: 'tasks', filter: 'today' })
   const [sidebarOpen, setSidebarOpen] = usePersistentFlag('ui.sidebar', true)
   const [assistantOpen, setAssistantOpen] = usePersistentFlag('ui.assistant', true)
@@ -74,8 +77,8 @@ export default function App(): React.JSX.Element {
     }
   }, [assistantWidth])
 
-  const createNote = async (): Promise<void> => {
-    const note = await window.api.notes.create({ title: '', content: '' })
+  const createNote = async (tpl?: NoteTemplate): Promise<void> => {
+    const note = await window.api.notes.create(tpl ? applyTemplate(tpl) : { title: '', content: '' })
     setView({ kind: 'note', id: note.id })
   }
 
@@ -105,7 +108,17 @@ export default function App(): React.JSX.Element {
   const actions = useMemo<Command[]>(
     () => [
       { id: 'new-task', group: 'Действия', label: 'Новая задача', icon: 'plus', shortcut: 'mod+n', run: newTask },
-      { id: 'new-note', group: 'Действия', label: 'Новая заметка', icon: 'file', shortcut: 'mod+shift+n', run: createNote },
+      { id: 'new-note', group: 'Действия', label: 'Новая заметка', icon: 'file', shortcut: 'mod+shift+n', run: () => createNote() },
+      ...templates.map(
+        (t): Command => ({
+          id: `new-note-${t.id}`,
+          group: 'Шаблоны',
+          label: `Новая заметка: ${t.name}`,
+          icon: 'template',
+          keywords: 'шаблон template',
+          run: () => createNote(t)
+        })
+      ),
       { id: 'ask', group: 'Действия', label: 'Спросить ассистента', icon: 'sparkles', shortcut: 'mod+j', run: focusAssistant },
       {
         id: 'toggle-sidebar',
@@ -125,7 +138,7 @@ export default function App(): React.JSX.Element {
       },
       { id: 'trash', group: 'Перейти', label: 'Корзина', icon: 'trash', keywords: 'удалённые', run: () => setView({ kind: 'trash' }) }
     ],
-    [sidebarOpen, assistantOpen, view]
+    [sidebarOpen, assistantOpen, view, templates]
   )
 
   useEffect(() => {
@@ -234,7 +247,7 @@ export default function App(): React.JSX.Element {
       }
       if (matches(e, 'mod+k')) run(() => setPaletteOpen((v) => !v))
       else if (matches(e, 'mod+n')) run(newTask)
-      else if (matches(e, 'mod+shift+n')) run(createNote)
+      else if (matches(e, 'mod+shift+n')) run(() => createNote())
       else if (matches(e, 'mod+j')) run(focusAssistant)
       else if (matches(e, 'mod+\\')) run(() => setSidebarOpen((v) => !v))
       else if (matches(e, 'mod+.')) run(() => setAssistantOpen((v) => !v))
@@ -260,7 +273,7 @@ export default function App(): React.JSX.Element {
           trash={trash}
           view={view}
           onSelect={setView}
-          onCreateNote={createNote}
+          onCreateNote={() => createNote()}
           onOpenPalette={() => setPaletteOpen(true)}
         />
       </div>

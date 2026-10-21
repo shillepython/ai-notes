@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { Store } from '../store'
 import type { Note, Task, Topic } from '@shared/types'
 import { trashItemId } from '../../shared/types.ts'
+import { applyTemplate, findTemplate } from '../../shared/templates.ts'
+import { listTemplates } from '../templates.ts'
 
 // Tools the assistant can call. Each one maps onto the data service in
 // ../store, so every change the AI makes goes through the same code path
@@ -314,11 +316,47 @@ const TOOLS = {
     description:
       'Создаёт заметку: текст для чтения и хранения (идеи, конспект, список, мысли). Используй, когда пользователь ' +
       'говорит «заметка», «запиши», «сохрани», даже если внутри есть пункты или дела. ' +
-      'content в Markdown: чекбоксы `- [ ]` для дел и шагов, `- ` для простого перечисления, `1.` для порядка.',
-    schema: z.object({ title: z.string().min(1), content: z.string().optional() }).strict(),
-    run(store, input) {
-      const note = store.createNote(input)
+      'content в Markdown: чекбоксы `- [ ]` для дел и шагов, `- ` для простого перечисления, `1.` для порядка. ' +
+      'template: название шаблона («Встреча», «Дневник», «План проекта» или свой из list_templates), когда ' +
+      'пользователь просит заметку встречи, запись в дневник, план проекта или называет шаблон. Тогда заметка ' +
+      'будет по разделам шаблона: передай в content уже заполненный текст с теми же заголовками `## …` (взятыми ' +
+      'из list_templates), или оставь content пустым для пустого шаблона. Текст без заголовков допишется в конец ' +
+      'шаблона. title можно не передавать.',
+    schema: z
+      .object({ title: z.string().optional(), content: z.string().optional(), template: z.string().optional() })
+      .strict(),
+    run(store, { title, content, template }) {
+      if (template) {
+        const tpl = findTemplate(listTemplates(), template)
+        if (!tpl) {
+          throw new Error(
+            `Шаблон «${template}» не найден. Есть: ${listTemplates()
+              .map((t) => t.name)
+              .join(', ')}`
+          )
+        }
+        // A body already laid out in sections replaces the template's empty ones; plain text goes after them.
+        const filled = /^#{1,3} /m.test(content ?? '')
+          ? { title: applyTemplate(tpl, { title }).title, content: content! }
+          : applyTemplate(tpl, { title, content })
+        const note = store.createNote(filled)
+        return { result: noteView(note), summary: `Создана заметка «${note.title}» по шаблону «${tpl.name}»` }
+      }
+      if (!title?.trim()) throw new Error('Нужен title (или template).')
+      const note = store.createNote({ title, content })
       return { result: noteView(note), summary: `Создана заметка «${note.title}»` }
+    }
+  }),
+
+  list_templates: tool({
+    description: 'Шаблоны заметок: встроенные (встреча, дневник, план проекта) и свои шаблоны пользователя, с разделами.',
+    schema: z.object({}).strict(),
+    run() {
+      const templates = listTemplates()
+      return {
+        result: templates.map((t) => ({ name: t.name, custom: t.custom, sections: t.content })),
+        summary: `Шаблонов: ${templates.length}`
+      }
     }
   }),
 

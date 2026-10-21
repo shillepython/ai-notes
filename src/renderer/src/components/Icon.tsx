@@ -30,7 +30,9 @@ const PATHS = {
   message: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
   download: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3',
   cloud: 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z',
-  archive: 'M21 8v13H3V8M1 3h22v5H1zM10 12h4'
+  archive: 'M21 8v13H3V8M1 3h22v5H1zM10 12h4',
+  paperclip: 'm21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48',
+  template: 'M3 3h18v7H3zM3 14h9v7H3zM16 14h5v7h-5z'
 } as const
 
 export type IconName = keyof typeof PATHS

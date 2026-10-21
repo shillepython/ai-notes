@@ -130,3 +130,24 @@ test('delete tools move to the trash and restore_from_trash brings items back', 
   assert.equal(s.getNote(note.id)!.title, 'Рецепт')
   assert.equal(executeTool(s, 'restore_from_trash', { kind: 'note', id: note.id }).isError, true)
 })
+
+test('create_note with a template lays the note out in its sections', () => {
+  const s = fresh()
+  const empty = executeTool(s, 'create_note', { template: 'Встреча' })
+  assert.equal(empty.isError, false)
+  const [note] = s.listNotes()
+  assert.match(note.title, /^Встреча \d{2}\.\d{2}\.\d{4}$/)
+  assert.match(note.content, /## Повестка/)
+
+  executeTool(s, 'create_note', { title: 'Итоги созвона', template: 'встреча', content: 'Решили запускаться в ноябре' })
+  const withText = s.listNotes({ query: 'Итоги созвона' })[0]
+  assert.match(withText.content, /## Решения[\s\S]*Решили запускаться в ноябре/)
+
+  executeTool(s, 'create_note', { template: 'Дневник', content: '## Как я\nОтлично' })
+  assert.equal(s.listNotes({ query: 'Отлично' })[0].content, '## Как я\nОтлично')
+
+  const missing = executeTool(s, 'create_note', { template: 'Рецепт' })
+  assert.equal(missing.isError, true)
+  assert.match(missing.content, /План проекта/)
+  assert.equal(executeTool(s, 'create_note', {}).isError, true)
+})

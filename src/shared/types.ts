@@ -116,3 +116,12 @@ export type TrashItem = { deletedAt: string } & (
 
 export const trashItemId = (item: TrashItem): string =>
   item.kind === 'note' ? item.note.id : item.kind === 'task' ? item.task.id : item.topic.id
+
+/** A file copied into the app's storage and linked from a note as `attachment://<id>/<name>`. */
+export interface Attachment {
+  url: string
+  name: string
+  /** Bytes */
+  size: number
+  isImage: boolean
+}
