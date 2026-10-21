@@ -94,3 +94,24 @@ export const resetChecklist = (text: string): string =>
     .split('\n')
     .map((l) => l.replace(/^(\s*[-*+] )\[[xX]\]/, '$1[ ]'))
     .join('\n')
+
+/** Splits a description into free text and its checkbox lines (kept as written). */
+export function splitChecklist(text: string): { body: string; items: string[] } {
+  const lines = text.split('\n')
+  return {
+    body: lines
+      .filter((l) => !CHECKBOX_RE.test(l))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim(),
+    items: lines.filter((l) => CHECKBOX_RE.test(l))
+  }
+}
+
+/** The inverse of splitChecklist: text first, then the checkboxes. */
+export const joinChecklist = (body: string, items: string[]): string =>
+  [body.trimEnd(), items.join('\n')].filter(Boolean).join('\n\n')
+
+/** The first line of a description that is not a checkbox, for one-line previews. */
+export const previewLine = (text: string): string =>
+  text.split('\n').find((l) => l.trim() && !CHECKBOX_RE.test(l))?.trim() ?? ''

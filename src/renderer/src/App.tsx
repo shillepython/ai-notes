@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Task } from '@shared/types'
 import type { SyncStatus } from '@shared/data'
 import { applyTemplate, type NoteTemplate } from '@shared/templates'
@@ -15,6 +15,8 @@ import AssistantPanel from './components/AssistantPanel'
 import CommandPalette, { type Command } from './components/CommandPalette'
 import Toasts, { toast } from './components/Toasts'
 import { Icon } from './components/Icon'
+import type { OpenLink } from './components/Links'
+import { resolveLink } from '@shared/links'
 
 /** Remembers a UI flag (sidebar/assistant visibility) between launches. */
 function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean | ((v: boolean) => boolean)) => void] {
@@ -217,6 +219,35 @@ export default function App(): React.JSX.Element {
     return list
   }, [sync])
 
+  // [[Links]] in notes and task details: open the target, or create a note for a title that does not exist yet.
+  const linkState = useRef({ notes, tasks })
+  linkState.current = { notes, tasks }
+  useEffect(() => {
+    const onOpen = async (e: Event): Promise<void> => {
+      const detail = (e as CustomEvent<OpenLink>).detail
+      const { notes, tasks } = linkState.current
+      if ('id' in detail) {
+        if (detail.kind === 'note') setView({ kind: 'note', id: detail.id })
+        else {
+          const task = tasks.find((t) => t.id === detail.id)
+          if (task) openTask(task)
+        }
+        return
+      }
+      const target = resolveLink(detail.title, notes, tasks)
+      if (target?.kind === 'note') setView({ kind: 'note', id: target.note.id })
+      else if (target?.kind === 'task') openTask(target.task)
+      else {
+        const note = await window.api.notes.create({ title: detail.title, content: '' })
+        setView({ kind: 'note', id: note.id })
+        toast(`Создана заметка «${detail.title}»`)
+      }
+    }
+    const listener = (e: Event): void => void onOpen(e)
+    window.addEventListener('ui:open-link', listener)
+    return () => window.removeEventListener('ui:open-link', listener)
+  }, [])
+
   // Clicking a reminder notification opens its task.
   useEffect(
     () =>
@@ -299,10 +330,11 @@ export default function App(): React.JSX.Element {
         </div>
 
         <div className="content-scroll" key={viewKey}>
-          {view.kind === 'tasks' && <TaskBoard tasks={tasks} topics={topics} filter={view.filter} />}
+          {view.kind === 'tasks' && <TaskBoard tasks={tasks} notes={notes} topics={topics} filter={view.filter} />}
           {view.kind === 'topic' && (
             <TaskBoard
               tasks={tasks}
+              notes={notes}
               topics={topics}
               filter="all"
               topicId={view.id}
@@ -315,6 +347,8 @@ export default function App(): React.JSX.Element {
             (currentNote ? (
               <NoteEditor
                 note={currentNote}
+                notes={notes}
+                tasks={tasks}
                 onDeleted={() => setView({ kind: 'tasks', filter: 'today' })}
                 onRestored={(id) => setView({ kind: 'note', id })}
               />

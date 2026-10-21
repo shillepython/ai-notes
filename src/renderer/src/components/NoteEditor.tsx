@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
-import type { Attachment, Note } from '@shared/types'
+import type { Attachment, Note, Task } from '@shared/types'
 import { applyTemplate, type NoteTemplate } from '@shared/templates'
+import { replaceLinks, resolveLink } from '@shared/links'
 import { matches } from '../hotkeys'
 import { removeTemplate, saveTemplate, useTemplates } from '../templates'
 import { Icon, Kbd } from './Icon'
 import { autosize } from './TaskBoard'
 import { toast } from './Toasts'
+import { LinksBlock, openLink } from './Links'
 
 interface Props {
   note: Note
+  /** For resolving [[links]] and listing backlinks */
+  notes: Note[]
+  tasks: Task[]
   onDeleted: () => void
   onRestored: (id: string) => void
 }
@@ -24,7 +29,7 @@ export const attachmentMarkdown = (a: Attachment): string =>
  * Title + markdown body with Edit/Preview toggle (⌘E). Saves automatically (debounced).
  * Pasting or dropping files attaches them; an empty note offers templates.
  */
-export default function NoteEditor({ note, onDeleted, onRestored }: Props): React.JSX.Element {
+export default function NoteEditor({ note, notes, tasks, onDeleted, onRestored }: Props): React.JSX.Element {
   const [title, setTitle] = useState(note.title)
   const [content, setContent] = useState(note.content)
   const [preview, setPreview] = useState(note.content.length > 0)
@@ -66,7 +71,15 @@ export default function NoteEditor({ note, onDeleted, onRestored }: Props): Reac
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const html = useMemo(() => marked.parse(content, { async: false }) as string, [content])
+  // [[Title]] becomes a link; one to a missing note is dimmed and creates the note on click.
+  const html = useMemo(() => {
+    const withLinks = replaceLinks(content, (title) => {
+      const missing = !resolveLink(title, notes, tasks)
+      return `<a href="#" class="wikilink${missing ? ' missing' : ''}" data-link="${escapeAttr(title)}">${escapeHtml(title)}</a>`
+    })
+    return marked.parse(withLinks, { async: false }) as string
+  }, [content, notes, tasks])
+
 
   const remove = async (): Promise<void> => {
     await window.api.notes.delete(note.id)
@@ -152,9 +165,16 @@ export default function NoteEditor({ note, onDeleted, onRestored }: Props): Reac
     }
   }
 
-  // Attachment links and images open in their default app instead of navigating the window.
+  // [[Links]] open their note or task; attachment links and images open in their default app
+  // instead of navigating the window.
   const onPreviewClick = (e: React.MouseEvent): void => {
     const target = e.target as HTMLElement
+    const wikilink = target.closest<HTMLElement>('a.wikilink')
+    if (wikilink) {
+      e.preventDefault()
+      openLink({ title: wikilink.dataset.link ?? '' })
+      return
+    }
     const link = target.closest('a')
     const url = link?.getAttribute('href') ?? (target instanceof HTMLImageElement ? target.getAttribute('src') : null)
     if (!url?.startsWith(ATTACHMENT)) return
@@ -254,7 +274,7 @@ export default function NoteEditor({ note, onDeleted, onRestored }: Props): Reac
           className="note-body fade-in"
           value={content}
           autoFocus={note.title !== '' && note.title !== 'Без названия'}
-          placeholder="Пиши в markdown: # заголовок, - список, **жирный**… Картинки и файлы можно вставить или перетащить."
+          placeholder="Пиши в markdown: # заголовок, - список, **жирный**, [[Название]] — ссылка. Картинки и файлы можно вставить или перетащить."
           onChange={(e) => edit({ content: e.target.value })}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files)
@@ -269,6 +289,10 @@ export default function NoteEditor({ note, onDeleted, onRestored }: Props): Reac
           <Icon name="paperclip" size={18} /> Отпусти, чтобы прикрепить
         </div>
       )}
+      <LinksBlock text={content} title={note.title} selfId={note.id} notes={notes} tasks={tasks} layout="footer" />
     </div>
   )
 }
+
+const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const escapeAttr = (s: string): string => escapeHtml(s).replace(/"/g, '&quot;')

@@ -383,6 +383,8 @@ export class Store extends EventEmitter {
         if (successor && successor.status !== 'done') {
           next.recurrence ??= successor.recurrence
           this.db.prepare('DELETE FROM tasks WHERE id = ?').run(successor.id)
+          // Tombstone, so sync removes it on other Macs too.
+          this.db.prepare('INSERT OR REPLACE INTO purged (kind, id, purged_at) VALUES (?, ?, ?)').run('task', successor.id, ts)
           this.emitChange({ entity: 'task', action: 'purged', id: successor.id })
         }
         nextTaskId = null
@@ -467,12 +469,16 @@ export class Store extends EventEmitter {
       return
     for (const n of notes)
       if (linksTo(n.content, oldTitle)) {
-        this.db.prepare('UPDATE notes SET content = ? WHERE id = ?').run(renameLinks(n.content, oldTitle, newTitle), n.id)
+        this.db
+          .prepare('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?')
+          .run(renameLinks(n.content, oldTitle, newTitle), now(), n.id)
         this.emitChange({ entity: 'note', action: 'updated', id: n.id })
       }
     for (const t of tasks)
       if (linksTo(t.description, oldTitle)) {
-        this.db.prepare('UPDATE tasks SET description = ? WHERE id = ?').run(renameLinks(t.description, oldTitle, newTitle), t.id)
+        this.db
+          .prepare('UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?')
+          .run(renameLinks(t.description, oldTitle, newTitle), now(), t.id)
         this.emitChange({ entity: 'task', action: 'updated', id: t.id })
       }
   }

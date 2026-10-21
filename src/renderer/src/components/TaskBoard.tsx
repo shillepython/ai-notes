@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TOPIC_COLORS, type Task, type TaskPatch, type TaskPriority, type TaskStatus, type Topic } from '@shared/types'
+import {
+  TOPIC_COLORS,
+  type Note,
+  type Recurrence,
+  type Task,
+  type TaskPatch,
+  type TaskPriority,
+  type TaskStatus,
+  type Topic
+} from '@shared/types'
+import { describeRecurrence, isoWeekday } from '@shared/recurrence'
+import { CHECKBOX_RE, checklistProgress, joinChecklist, previewLine, splitChecklist } from '@shared/links'
 import { TASK_VIEWS, filterTasks, groupTasks, pluralTasks, type TaskFilter, type TaskGroup } from '../taskViews'
 import { addDays, formatDue, formatReminder, nextWeek, toLocalInput, today } from '../dates'
 import { isTyping, matches, onUi } from '../hotkeys'
@@ -8,6 +19,7 @@ import Collapse from './Collapse'
 import CodePromptButton from './CodePromptButton'
 import { toast } from './Toasts'
 import { TopicMark } from './Sidebar'
+import { LinksBlock } from './Links'
 
 const PRIORITIES: { value: TaskPriority; label: string }[] = [
   { value: 'low', label: 'Низкий' },
@@ -32,6 +44,8 @@ const COMPLETE_DELAY = 450
 
 interface Props {
   tasks: Task[]
+  /** For [[links]] and backlinks in task details */
+  notes: Note[]
   topics: Topic[]
   filter: TaskFilter
   /** When set, shows only this topic's tasks and files new ones into it */
@@ -40,7 +54,7 @@ interface Props {
   onTopicRestored?: (id: string) => void
 }
 
-export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDeleted, onTopicRestored }: Props): React.JSX.Element {
+export default function TaskBoard({ tasks, notes, topics, filter, topicId, onTopicDeleted, onTopicRestored }: Props): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -255,6 +269,8 @@ export default function TaskBoard({ tasks, topics, filter, topicId, onTopicDelet
                   setDrop(null)
                 }}
                 task={t}
+                tasks={tasks}
+                notes={notes}
                 topics={topics}
                 showTopic={!topicId}
                 showDue={!(filter === 'today' && t.dueDate === today())}
@@ -397,6 +413,8 @@ interface RowProps {
   onDrop: (e: React.DragEvent) => void
   onDragEnd: () => void
   task: Task
+  tasks: Task[]
+  notes: Note[]
   topics: Topic[]
   showTopic: boolean
   showDue: boolean
@@ -418,6 +436,8 @@ function TaskRow(p: RowProps): React.JSX.Element {
   const done = task.status === 'done' || p.completing
   const overdue = !done && task.dueDate !== null && task.dueDate < today()
   const topic = p.showTopic && task.topicId ? p.topics.find((t) => t.id === task.topicId) : undefined
+  const progress = checklistProgress(task.description)
+  const preview = previewLine(task.description)
 
   const cls = [
     'task',
@@ -460,7 +480,7 @@ function TaskRow(p: RowProps): React.JSX.Element {
           ) : (
             <div className="task-title">{task.title}</div>
           )}
-          {!p.open && task.description && <div className="task-desc-preview">{task.description.split('\n')[0]}</div>}
+          {!p.open && preview && <div className="task-desc-preview">{preview}</div>}
         </div>
         <div className="task-trail">
           {task.priority === 'high' && !done && <Icon name="flag" size={13} className="flag-high" />}
@@ -471,6 +491,12 @@ function TaskRow(p: RowProps): React.JSX.Element {
             </span>
           )}
           {task.status === 'in_progress' && <span className="badge">в работе</span>}
+          {progress.total > 0 && <SubtaskProgress {...progress} />}
+          {task.recurrence && !done && (
+            <span className="repeat" title={`Повтор: ${describeRecurrence(task.recurrence)}`}>
+              <Icon name="repeat" size={12} />
+            </span>
+          )}
           {!done && task.remindAt && !task.remindedAt && (
             <span className="reminder" title="Напоминание">
               <Icon name="bell" size={12} />
@@ -494,9 +520,24 @@ function TaskRow(p: RowProps): React.JSX.Element {
         </div>
       </div>
       <Collapse open={p.open}>
-        <TaskDetails task={task} topics={p.topics} onClose={p.onClose} onDelete={p.onDelete} />
+        <TaskDetails task={task} tasks={p.tasks} notes={p.notes} topics={p.topics} onClose={p.onClose} onDelete={p.onDelete} />
       </Collapse>
     </li>
+  )
+}
+
+/** "3/5" with a small ring that fills as subtasks get checked. */
+function SubtaskProgress({ done, total }: { done: number; total: number }): React.JSX.Element {
+  const r = 5.5
+  const c = 2 * Math.PI * r
+  return (
+    <span className={`subtask-progress ${done === total ? 'complete' : ''}`} title={`Подзадачи: ${done} из ${total}`}>
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+        <circle cx="7" cy="7" r={r} className="ring-bg" />
+        <circle cx="7" cy="7" r={r} className="ring-fg" strokeDasharray={`${(done / total) * c} ${c}`} transform="rotate(-90 7 7)" />
+      </svg>
+      {done}/{total}
+    </span>
   )
 }
 
@@ -526,37 +567,53 @@ function InlineTitle({ task, onDone }: { task: Task; onDone: () => void }): Reac
 
 function TaskDetails({
   task,
+  tasks,
+  notes,
   topics,
   onClose,
   onDelete
 }: {
   task: Task
+  tasks: Task[]
+  notes: Note[]
   topics: Topic[]
   onClose: () => void
   onDelete: () => void
 }): React.JSX.Element {
   const [title, setTitle] = useState(task.title)
-  const [description, setDescription] = useState(task.description)
+  // The textarea edits the free text; checkboxes (subtasks) are edited in their own list below.
+  const [body, setBody] = useState(() => splitChecklist(task.description).body)
+  const items = splitChecklist(task.description).items
+  const description = joinChecklist(body, items)
   const descRef = useRef<HTMLTextAreaElement>(null)
   const update = (patch: Parameters<typeof window.api.tasks.update>[1]): void => {
     void window.api.tasks.update(task.id, patch)
   }
+  const bodyChanged = (): boolean => body !== splitChecklist(task.description).body
+
+  // Pick up changes made elsewhere (e.g. by the assistant) unless the text is being edited.
+  useEffect(() => {
+    if (document.activeElement !== descRef.current) setBody(splitChecklist(task.description).body)
+  }, [task.description])
 
   // Save text fields when the panel closes, not only on blur.
-  const latest = useRef({ title, description, task })
-  latest.current = { title, description, task }
+  const latest = useRef({ title, body, task })
+  latest.current = { title, body, task }
   useEffect(
     () => () => {
-      const { title, description, task } = latest.current
+      const { title, body, task } = latest.current
       const patch: Parameters<typeof window.api.tasks.update>[1] = {}
       if (title.trim() && title.trim() !== task.title) patch.title = title.trim()
-      if (description !== task.description) patch.description = description
+      const split = splitChecklist(task.description)
+      if (body !== split.body) patch.description = joinChecklist(body, split.items)
       if (Object.keys(patch).length) void window.api.tasks.update(task.id, patch)
     },
     []
   )
 
-  useEffect(() => autosize(descRef.current), [description])
+  useEffect(() => autosize(descRef.current), [body])
+
+  const setItems = (next: string[]): void => update({ description: joinChecklist(bodyChanged() ? body : splitChecklist(task.description).body, next) })
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (e.key === 'Escape') {
@@ -585,11 +642,13 @@ function TaskDetails({
         ref={descRef}
         className="details-desc"
         rows={2}
-        placeholder="Добавить описание…"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        onBlur={() => description !== task.description && update({ description })}
+        placeholder="Добавить описание… [[Название]] — ссылка на заметку или задачу"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onBlur={() => bodyChanged() && update({ description })}
       />
+
+      <Subtasks items={items} onChange={setItems} />
 
       <div className="prop">
         <span className="prop-label">Срок</span>
@@ -629,6 +688,8 @@ function TaskDetails({
           )}
         </div>
       </div>
+
+      <RepeatProp task={task} onChange={(recurrence) => update({ recurrence })} />
 
       <div className="prop">
         <span className="prop-label">Топик</span>
@@ -673,6 +734,8 @@ function TaskDetails({
         </div>
       </div>
 
+      <LinksBlock text={description} title={task.title} selfId={task.id} notes={notes} tasks={tasks} layout="prop" />
+
       <div className="details-footer">
         <button className="ghost-btn danger" onClick={onDelete}>
           <Icon name="trash" size={13} /> Удалить
@@ -681,6 +744,123 @@ function TaskDetails({
         <span className="muted small details-esc">
           <Kbd keys="esc" /> закрыть
         </span>
+      </div>
+    </div>
+  )
+}
+
+/** Checkbox lines of the description as a checklist: toggle, rename, remove, add. */
+function Subtasks({ items, onChange }: { items: string[]; onChange: (items: string[]) => void }): React.JSX.Element {
+  const [draft, setDraft] = useState('')
+  const parsed = items.map((line) => {
+    const m = CHECKBOX_RE.exec(line)!
+    return { indent: m[1].length, done: m[2] !== ' ', text: m[3] }
+  })
+  const lineOf = (indent: number, done: boolean, text: string): string => `${' '.repeat(indent)}- [${done ? 'x' : ' '}] ${text}`
+  const set = (i: number, line: string | null): void =>
+    onChange(line === null ? items.filter((_, j) => j !== i) : items.map((l, j) => (j === i ? line : l)))
+  const add = (): void => {
+    const text = draft.trim()
+    if (!text) return
+    setDraft('')
+    onChange([...items, lineOf(0, false, text)])
+  }
+  const done = parsed.filter((p) => p.done).length
+
+  return (
+    <div className="subtasks">
+      {items.length > 0 && (
+        <div className="subtasks-head">
+          Подзадачи
+          <span className="muted">
+            {done} из {items.length}
+          </span>
+          <span className="subtasks-bar">
+            <span style={{ width: `${(done / items.length) * 100}%` }} />
+          </span>
+        </div>
+      )}
+      <ul>
+        {parsed.map((p, i) => (
+          <li key={i} className={p.done ? 'done' : ''} style={{ paddingLeft: Math.min(p.indent, 8) * 8 }}>
+            <button
+              className={`subtask-check ${p.done ? 'on' : ''}`}
+              title={p.done ? 'Снять отметку' : 'Отметить'}
+              onClick={() => set(i, lineOf(p.indent, !p.done, p.text))}
+            >
+              <Icon name="check" size={10} />
+            </button>
+            <SubtaskText text={p.text} onSave={(text) => set(i, text ? lineOf(p.indent, p.done, text) : null)} />
+            <button className="icon-btn subtask-remove" title="Удалить подзадачу" onClick={() => set(i, null)}>
+              <Icon name="x" size={12} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="subtask-add">
+        <Icon name="plus" size={13} />
+        <input
+          value={draft}
+          placeholder="Добавить подзадачу"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+          onBlur={add}
+        />
+      </div>
+    </div>
+  )
+}
+
+function SubtaskText({ text, onSave }: { text: string; onSave: (text: string) => void }): React.JSX.Element {
+  const [value, setValue] = useState(text)
+  useEffect(() => setValue(text), [text])
+  return (
+    <input
+      className="subtask-text"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => value.trim() !== text && onSave(value.trim())}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  )
+}
+
+/** One-tap repeat presets; a custom rule set by the assistant shows as its own chip. */
+function RepeatProp({ task, onChange }: { task: Task; onChange: (r: Recurrence | null) => void }): React.JSX.Element {
+  const weekday = isoWeekday(task.dueDate ?? today())
+  const presets: { label: string; rule: Recurrence }[] = [
+    { label: 'Каждый день', rule: { freq: 'daily', interval: 1 } },
+    { label: 'По будням', rule: { freq: 'weekly', interval: 1, weekdays: [1, 2, 3, 4, 5] } },
+    { label: 'Каждую неделю', rule: { freq: 'weekly', interval: 1, weekdays: [weekday] } },
+    { label: 'Каждый месяц', rule: { freq: 'monthly', interval: 1 } },
+    { label: 'Каждый год', rule: { freq: 'yearly', interval: 1 } }
+  ]
+  const same = (a: Recurrence, b: Recurrence): boolean =>
+    a.freq === b.freq && a.interval === b.interval && (a.weekdays ?? []).join() === (b.weekdays ?? []).join()
+  const current = task.recurrence
+  const custom = current && !presets.some((p) => same(p.rule, current))
+  return (
+    <div className="prop">
+      <span className="prop-label">Повтор</span>
+      <div className="chips">
+        <button className={`chip ${!current ? 'on' : ''}`} onClick={() => current && onChange(null)}>
+          Нет
+        </button>
+        {presets.map((p) => (
+          <button key={p.label} className={`chip ${current && same(p.rule, current) ? 'on' : ''}`} onClick={() => onChange(p.rule)}>
+            {p.label}
+          </button>
+        ))}
+        {custom && (
+          <span className="chip on">
+            <Icon name="repeat" size={12} /> {describeRecurrence(current)}
+          </span>
+        )}
       </div>
     </div>
   )
