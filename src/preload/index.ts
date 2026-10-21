@@ -21,6 +21,7 @@ import type { NoteTemplate } from '../shared/templates'
 import { aiApi } from './ai'
 import { voiceApi } from './voice'
 import { dataApi } from './data'
+import { captureApi } from './capture'
 
 const api = {
   notes: {
@@ -98,6 +99,8 @@ const api = {
   voice: voiceApi,
   /** Markdown export, backups and iCloud sync. */
   data: dataApi,
+  /** Quick capture window (the island under the notch). */
+  capture: captureApi,
   /** Fires when the user clicks a reminder notification. Returns an unsubscribe fn. */
   onReminderOpen: (cb: (taskId: string) => void): (() => void) => {
     const listener = (_e: unknown, taskId: string): void => cb(taskId)

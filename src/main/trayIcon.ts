@@ -1,0 +1,14 @@
+import { nativeImage, type NativeImage } from 'electron'
+
+// Menu bar glyph (a page with a sparkle), black on transparent at 18pt and @2x.
+// Marked as a template image so macOS tints it for light/dark menu bars.
+const X1 = 'iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAABhUlEQVR4nI3UsU8VQRAG8N/de4hCCBrUkNDYU2gPNkboTEhorGiMpZ0VnQnGxN4QCxsrSSgJjYUW2mDjX4CFNiZKMBGVAO8oblbuLeeTSTY3t7sz3/fN7iz91vF/a91TZH6FEqPhp/Xk/8bhIJQyvvfxNQLbxg6Ws5i/LDo4wgze4S3ex3yvsa+HaSzgLtYasWAoviux+cIg6viGV+F35U6gFkF52EmdYB9/wm+tUZn9V5HkA74H+g4+40owTjHNg+pjlBYP8AzX1PrLSPYj21c1A/NEAvV5G/2wQ2xjRC23QNUmrYsXIW8LSzFX4Dw+quU/DNAOp2uUaE9iKsZ4sCgxhk3M4l6uLB3/42A0OkAWLEbiCrf6MmXWjeSpmInJHO5gPuYqrGMDm/k96uGnxm0NOwo5c7jcALmkvuUjzRa5jdd4iTeBmlrkAL9wEdfxINaf4Cl2E2Iq+iP/btgqEi7gE/ZwLpWj7RmZCOS2Z2QfX7CKq+rCDwVAn53lYStwAzed9KZj9TZhex1vqaYAAAAASUVORK5CYII='
+const X2 = 'iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAADgUlEQVR4nM3YPYhdRRQH8N97u27cjWI2UTAhWqirogiiVVAQESJaaKHYBlQsVBC0TpNCRMXCjyaN2phKxEIwpRaCqMRYaBNERUUFNxq/ks3uexYzk3vfvLkfbzegfzjc++bOnPmfc+bMnHn8zzA4z/1yjDc5rhFzUTaL4azj2yyfw0Z8X8SFM5JZw181YqOtEEpkbsfTuBXbW/rnGOM0PscrOGrSwJkwjM/HBavG50EOZrp7Y07wwr6oaKOmdCMS3OiQUTbubHw+WJujEXkIklvfxX3x/Ts8hRO1Sbp0DrAbL+Dm+Ps4bol9emVfIreIH1ThurvP4AbcICzuMf7B3tjeGLr5QttilEEkdUIVyi7L0vdk3Pc4hV1YwMVdFpQI5WG5QAjdvO4sSaTTc97ksuhM/RKhEkFYxw7tqX+yYWxv9CE0jCSex4E4SZ4po9jvPTymyqwtIVm+jF9VobtGiH/fPefqms66rg1cVzOyiC4PjYQ1tCbs2I9q99A7+EZ5V+6zZUyg5KG6VXm/WXWNcGP8tmkP1bGgnGVpv6L9EP0bP+vw0ixny5ryUZHSPJHLkfocwRLuiO3FI6RvlsHl2K86GhKRD/G15o0zZelLeBI34YMe8zbG/dpI/AvlrPoJl9WI1nVdIpQhXwoe+RF/CvtZvd+U9X3I7mz4tixkYsk7I2zDy0IFsVuoq+6POqfC1hWylOJnhXA9YDpk7wuWl0K2Dat4G6/VxhzAmw1GnEPftG8bW/89wAqeE0K6JnhsFA28KvZdKIzvRWi+QYaZjvxiMIcXo771KGNhkQ+yfhMh7CI0a/l5hbC7H1MlyDh7P4ZnYt8pNBG6viehgZA9+/GGcPLnBMYNbSfxOu4tEdqZEVpR3a8GBUnflvBsNukazrQQOqOqKKfOukRou7C3pA63dXgmx5VCDf5pgUSTpNCt5MpSWI5GC9bxmVCc7xK8t9whqfxdEgr8V/GH6kaS5Hccxp1alkNa5XeZvMKMhTCuxmebrOI3oRY/hIvwiCrLks4nsrnzjJ0idVB/l7fJ8ei11VrbKVwa58rr7iIS04fwsXD+dF0Q67Iu3Os/wcNxwsM1Qkcy48+hjVm9ttkrLPZZcBrf1n7vw0fx/R5hnQ7NeN9Pqb4VpJAM8RV+EY4LJd1dh2tiP/OfBBFpIc/H51vYI+w9qe0/QfLEHtWhWjTyXx0EWZTFBFDnAAAAAElFTkSuQmCC'
+
+export function trayIcon(): NativeImage {
+  const img = nativeImage.createEmpty()
+  img.addRepresentation({ scaleFactor: 1, dataURL: `data:image/png;base64,${X1}` })
+  img.addRepresentation({ scaleFactor: 2, dataURL: `data:image/png;base64,${X2}` })
+  img.setTemplateImage(true)
+  return img
+}

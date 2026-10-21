@@ -107,5 +107,7 @@ export function useVoiceInput({ onTranscript, listenToHotkey = true }: Options) 
     return window.api.voice.onToggle(() => toggle('hotkey'))
   }, [listenToHotkey, toggle])
 
-  return { state, error, modelProgress, startedAt, start, stop, cancel, toggle }
+  const level = useCallback(() => recorder.current.level(), [])
+
+  return { state, error, modelProgress, startedAt, start, stop, cancel, toggle, level }
 }

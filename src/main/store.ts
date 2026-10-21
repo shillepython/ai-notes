@@ -514,6 +514,11 @@ export class Store extends EventEmitter {
     return this.pendingReminders()[0]?.remindAt ?? null
   }
 
+  /** Reminders not shown yet, soonest first (for the menu bar). */
+  upcomingReminders(limit = 5): Task[] {
+    return this.pendingReminders().slice(0, limit)
+  }
+
   /** Records that the reminder was shown, so it does not fire again. */
   markReminded(id: string): void {
     const ts = now()

@@ -8,7 +8,7 @@ import type { CodePromptTask } from './prompts'
 import { clearApiKey, getApiKey, getPrefs, getSettings, saveApiKey, updatePrefs } from './settings'
 
 // IPC for the assistant. Channels: ai:getSettings, ai:setKey, ai:clearKey,
-// ai:updateSettings, ai:send, ai:cancel, ai:setView, ai:reset, ai:codePrompt; events go out on 'ai:event'.
+// ai:updateSettings, ai:send, ai:capture, ai:cancel, ai:setView, ai:reset, ai:codePrompt; events go out on 'ai:event'.
 
 const conversation = new Conversation()
 let running: AbortController | null = null
@@ -16,6 +16,52 @@ let view: AiViewContext | null = null
 
 function emit(target: WebContents, event: AiEvent): void {
   if (!target.isDestroyed()) target.send('ai:event', event)
+}
+
+// Quick capture keeps its own short conversation, so follow-ups like "и напомни в 9" work
+// without mixing into the main panel's chat.
+const captureConversation = new Conversation()
+let captureRunning: AbortController | null = null
+let captureLastAt = 0
+const CAPTURE_MEMORY_MS = 5 * 60 * 1000
+const CAPTURE_HINT = '[Быстрый захват из строки меню: сделай, что просят, и ответь одной короткой фразой без списков.]'
+
+/** Runs one user message through a conversation, streaming items to `target`. */
+function run(
+  target: WebContents,
+  raw: unknown,
+  rawId: unknown,
+  convo: Conversation,
+  viewCtx: AiViewContext | null,
+  controller: AbortController,
+  finished: () => void
+): void {
+  const text = typeof raw === 'string' ? raw.trim() : ''
+  const requestId = typeof rawId === 'string' && rawId ? rawId : randomUUID()
+  const apiKey = getApiKey()
+
+  queueMicrotask(async () => {
+    try {
+      if (!text) return
+      if (!apiKey) {
+        emit(target, { requestId, type: 'item', item: { kind: 'error', text: 'Добавь API-ключ в настройках ассистента.' } })
+        return
+      }
+      await convo.send(text, {
+        apiKey,
+        ...getPrefs(),
+        store: getStore(),
+        view: viewCtx,
+        signal: controller.signal,
+        onItem: (item) => emit(target, { requestId, type: 'item', item })
+      })
+    } catch (err) {
+      emit(target, { requestId, type: 'item', item: { kind: 'error', text: describeError(err) } })
+    } finally {
+      finished()
+      emit(target, { requestId, type: 'done' })
+    }
+  })
 }
 
 export function registerAiIpc(): void {
@@ -45,35 +91,25 @@ export function registerAiIpc(): void {
   })
 
   ipcMain.handle('ai:send', (e, raw: unknown, rawId: unknown) => {
-    const text = typeof raw === 'string' ? raw.trim() : ''
-    const requestId = typeof rawId === 'string' && rawId ? rawId : randomUUID()
-    const target = e.sender
-    const apiKey = getApiKey()
+    const controller = new AbortController()
+    running?.abort()
+    running = controller
+    run(e.sender, raw, rawId, conversation, view, controller, () => {
+      if (running === controller) running = null
+    })
+  })
 
-    queueMicrotask(async () => {
-      if (!text) return emit(target, { requestId, type: 'done' })
-      if (!apiKey) {
-        emit(target, { requestId, type: 'item', item: { kind: 'error', text: 'Добавь API-ключ в настройках ассистента.' } })
-        return emit(target, { requestId, type: 'done' })
-      }
-      running?.abort()
-      const controller = new AbortController()
-      running = controller
-      try {
-        await conversation.send(text, {
-          apiKey,
-          ...getPrefs(),
-          store: getStore(),
-          view,
-          signal: controller.signal,
-          onItem: (item) => emit(target, { requestId, type: 'item', item })
-        })
-      } catch (err) {
-        emit(target, { requestId, type: 'item', item: { kind: 'error', text: describeError(err) } })
-      } finally {
-        if (running === controller) running = null
-        emit(target, { requestId, type: 'done' })
-      }
+  ipcMain.handle('ai:capture', (e, raw: unknown, rawId: unknown) => {
+    // A pause longer than CAPTURE_MEMORY_MS starts a fresh capture conversation.
+    if (Date.now() - captureLastAt > CAPTURE_MEMORY_MS) captureConversation.reset()
+    captureLastAt = Date.now()
+    const controller = new AbortController()
+    captureRunning?.abort()
+    captureRunning = controller
+    const text = typeof raw === 'string' && raw.trim() ? `${CAPTURE_HINT}\n${raw.trim()}` : ''
+    run(e.sender, text, rawId, captureConversation, null, controller, () => {
+      if (captureRunning === controller) captureRunning = null
+      captureLastAt = Date.now()
     })
   })
 
@@ -81,7 +117,13 @@ export function registerAiIpc(): void {
     view = raw && typeof raw === 'object' && 'kind' in raw ? (raw as AiViewContext) : null
   })
 
-  ipcMain.handle('ai:cancel', () => {
+  ipcMain.handle('ai:cancel', (e) => {
+    // The capture window cancels only its own request.
+    if (captureRunning && e.sender.getURL().includes('capture.html')) {
+      captureRunning.abort()
+      captureRunning = null
+      return
+    }
     running?.abort()
     running = null
   })

@@ -52,6 +52,11 @@ export interface AiApi {
    * the id before sending, because events can arrive before this promise resolves.
    */
   send(text: string, requestId: string): Promise<void>
+  /**
+   * Like send, for the quick capture window: a separate short conversation (kept for a few
+   * minutes for follow-ups) that never touches the main panel's chat.
+   */
+  capture(text: string, requestId: string): Promise<void>
   cancel(): Promise<void>
   /** Tells the assistant what is open now. Call on every view change. */
   setViewContext(view: AiViewContext): Promise<void>

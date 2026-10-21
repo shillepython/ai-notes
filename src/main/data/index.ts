@@ -18,7 +18,7 @@ export function prepareDatabase(dbPath: string): void {
   }
 }
 
-const dialogParent = (): BrowserWindow | undefined => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+const dialogParent = (): BrowserWindow | undefined => BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().find((w) => w.isVisible())
 
 async function exportMarkdown(store: Store): Promise<ExportResult> {
   const win = dialogParent()

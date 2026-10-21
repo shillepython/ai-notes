@@ -18,6 +18,12 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react()]
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        // Main window and the quick capture island under the notch.
+        input: { index: resolve('src/renderer/index.html'), capture: resolve('src/renderer/capture.html') }
+      }
+    }
   }
 })
