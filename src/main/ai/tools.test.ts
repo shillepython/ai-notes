@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Store } from '../store.ts'
-import { executeTool, toolDefinitions } from './tools.ts'
+import { executeTool, runTool, toolDefinitions } from './tools.ts'
 
 const fresh = (): Store => new Store(':memory:')
 
@@ -175,4 +175,33 @@ test('recurring task by tool: repeat, complete returns the next occurrence; get_
 
   executeTool(s, 'update_task', { id: done.next.id, repeat: null })
   assert.equal(s.getTask(done.next.id)!.recurrence, null)
+})
+
+test('search adds meaning matches the word search missed; digest tools answer', async () => {
+  const s = fresh()
+  const tokens = s.createNote({ title: 'SOL и TON', content: 'комиссии' })
+  const exact = s.createNote({ title: 'Токены', content: '' })
+  const semanticSearch = async () => [
+    { kind: 'note' as const, id: exact.id, title: 'Токены', snippet: '', score: 0.9 },
+    { kind: 'note' as const, id: tokens.id, title: 'SOL и TON', snippet: 'комиссии', score: 0.88 }
+  ]
+  const res = await runTool(s, 'search', { query: 'токены' }, { semanticSearch })
+  const body = JSON.parse(res.content)
+  assert.equal(body.notes.length, 1)
+  assert.deepEqual(body.byMeaning.map((h: { id: string }) => h.id), [tokens.id])
+  assert.match(res.summary, /по смыслу ещё 1/)
+
+  // A failing model falls back to the word search.
+  const fallback = await runTool(s, 'search', { query: 'токены' }, { semanticSearch: () => Promise.reject(new Error('offline')) })
+  assert.equal(fallback.isError, false)
+
+  s.createTask({ title: 'Сегодня', dueDate: new Date().toLocaleDateString('sv-SE') })
+  assert.equal(JSON.parse(executeTool(s, 'get_briefing', {}).content).today.length, 1)
+  assert.equal(executeTool(s, 'get_weekly_review', {}).isError, false)
+
+  let settings = { dailyEnabled: true, dailyTime: '09:00', weeklyEnabled: true, weeklyTime: '18:00' }
+  const digestSettings = { get: () => settings, update: (p: Partial<typeof settings>) => (settings = { ...settings, ...p }) }
+  const set = executeTool(s, 'digest_settings', { dailyTime: '08:30' }, { digestSettings })
+  assert.match(set.summary, /брифинг в 08:30/)
+  assert.equal(executeTool(s, 'digest_settings', { dailyTime: '8 утра' }, { digestSettings }).isError, true)
 })

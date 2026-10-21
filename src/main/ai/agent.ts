@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { Store } from '../store'
 import type { AiChatItem, AiEffort, AiModelId, AiViewContext } from '@shared/ai'
 import { systemPrompt, timeStamp, viewLine } from './prompts'
-import { executeTool, toolDefinitions } from './tools'
+import { runTool, toolDefinitions, type ToolContext } from './tools'
 
 const MAX_STEPS = 25
 
@@ -73,6 +73,8 @@ export interface RunOptions {
   store: Store
   /** What the user has open; decides the default topic for new tasks. */
   view?: AiViewContext | null
+  /** Services the tools may use (semantic search, notification settings). */
+  services?: Omit<ToolContext, 'defaultTopicId'>
   signal: AbortSignal
   onItem(item: AiChatItem): void
 }
@@ -95,7 +97,7 @@ export class Conversation {
     const topic = view?.kind === 'topic' ? store.getTopic(view.topicId) : null
     const note = view?.kind === 'note' ? store.getNote(view.noteId) : null
     const where = viewLine({ topic: topic?.name, note: note ? { id: note.id, title: note.title } : undefined })
-    const toolContext = { defaultTopicId: topic?.id ?? null }
+    const toolContext: ToolContext = { ...opts.services, defaultTopicId: topic?.id ?? null }
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...this.history,
       { role: 'user', content: `${timeStamp()}${where}\n${text}` }
@@ -142,11 +144,13 @@ export class Conversation {
         return
       }
 
-      const results: Anthropic.Beta.BetaToolResultBlockParam[] = toolUses.map((use) => {
-        const outcome = executeTool(store, use.name, use.input, toolContext)
+      const results: Anthropic.Beta.BetaToolResultBlockParam[] = []
+      for (const use of toolUses) {
+        const outcome = await runTool(store, use.name, use.input, toolContext)
         opts.onItem({ kind: 'action', tool: use.name, summary: outcome.summary, ok: !outcome.isError })
-        return { type: 'tool_result', tool_use_id: use.id, content: outcome.content, is_error: outcome.isError }
-      })
+        results.push({ type: 'tool_result', tool_use_id: use.id, content: outcome.content, is_error: outcome.isError })
+      }
+      if (opts.signal.aborted) return
       messages.push({ role: 'user', content: results })
     }
 

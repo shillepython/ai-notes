@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Note, Task, Topic } from '@shared/types'
+import type { Note, SemanticSearchResult, Task, Topic } from '@shared/types'
 import { TASK_VIEWS, type View } from '../taskViews'
 import { formatDue } from '../dates'
 import { matches } from '../hotkeys'
@@ -54,6 +54,7 @@ export default function CommandPalette(p: Props): React.JSX.Element {
   const [closing, setClosing] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const q = query.trim().toLocaleLowerCase()
+  const semantic = useSemantic(query.trim())
 
   const close = (): void => {
     setClosing(true)
@@ -127,9 +128,24 @@ export default function CommandPalette(p: Props): React.JSX.Element {
         run: () => p.onCreateTask(query.trim())
       }
     ]
+    // Notes and tasks found by meaning that the word match missed.
+    const shown = new Set(scored.map((c) => c.id))
+    const byMeaning: Command[] = (semantic?.status === 'ready' ? semantic.hits : [])
+      .map((h): Command | null => {
+        const id = `${h.kind}-${h.id}`
+        if (shown.has(id)) return null
+        if (h.kind === 'note') {
+          return { id, group: 'По смыслу', label: h.title, icon: 'file', hint: h.snippet, run: () => p.onNavigate({ kind: 'note', id: h.id }) }
+        }
+        const task = p.tasks.find((t) => t.id === h.id)
+        if (!task) return null
+        return { id, group: 'По смыслу', label: h.title, icon: task.status === 'done' ? 'checkCircle' : 'inbox', hint: h.snippet, run: () => p.onOpenTask(task) }
+      })
+      .filter((c): c is Command => c !== null)
+      .slice(0, 6)
     // Real matches first; the free-text actions are always available below them.
-    return [...scored, ...free]
-  }, [all, q, query])
+    return [...scored, ...byMeaning, ...free]
+  }, [all, q, query, semantic, p.tasks])
 
   useEffect(() => setActive(0), [q])
   useEffect(() => {
@@ -193,6 +209,13 @@ export default function CommandPalette(p: Props): React.JSX.Element {
             )
           })}
         </div>
+        {semantic?.status === 'loading' && (
+          <div className="palette-status">
+            <span className="palette-spinner" />
+            Готовлю поиск по смыслу: загружаю модель (один раз, ~120 МБ)
+            {semantic.progress !== null && semantic.progress > 0 ? ` · ${Math.round(semantic.progress)}%` : '…'}
+          </div>
+        )}
         <div className="palette-footer">
           <span>
             <Kbd keys="up" /> <Kbd keys="down" /> выбрать
@@ -210,4 +233,26 @@ export default function CommandPalette(p: Props): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+/** Search by meaning for queries of 3+ characters, debounced; polls while the model is loading. */
+function useSemantic(query: string): SemanticSearchResult | null {
+  const [result, setResult] = useState<SemanticSearchResult | null>(null)
+  useEffect(() => {
+    setResult(null)
+    if (query.length < 3) return
+    let cancelled = false
+    let timer = setTimeout(function run() {
+      window.api.search.semantic(query).then((res) => {
+        if (cancelled) return
+        setResult(res)
+        if (res.status === 'loading') timer = setTimeout(run, 1500)
+      })
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [query])
+  return result
 }

@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import type { Store } from '../store'
-import type { Note, Task, Topic } from '@shared/types'
+import type { DigestSettings, Note, SemanticHit, Task, Topic } from '@shared/types'
 import { trashItemId } from '../../shared/types.ts'
 import { applyTemplate, findTemplate } from '../../shared/templates.ts'
 import { listTemplates } from '../templates.ts'
@@ -15,6 +15,7 @@ import {
   resolveLink,
   type LinkTarget
 } from '../../shared/links.ts'
+import { buildBriefing, buildWeeklyReview } from '../digest.ts'
 
 // Tools the assistant can call. Each one maps onto the data service in
 // ../store, so every change the AI makes goes through the same code path
@@ -38,12 +39,18 @@ const toLocal = (iso: string | null): string | null =>
 export interface ToolContext {
   /** The open topic: new tasks go there unless the model names a topic or passes null. */
   defaultTopicId?: string | null
+  /** Search by meaning (local embeddings). Without it, search matches words only. */
+  semanticSearch?: (query: string) => Promise<SemanticHit[]>
+  /** Morning briefing / weekly review notification settings. */
+  digestSettings?: { get(): DigestSettings; update(patch: Partial<DigestSettings>): DigestSettings }
 }
+
+type ToolResult = { result: unknown; summary: string }
 
 interface ToolDef<S extends z.ZodType> {
   description: string
   schema: S
-  run(store: Store, input: z.infer<S>, ctx: ToolContext): { result: unknown; summary: string }
+  run(store: Store, input: z.infer<S>, ctx: ToolContext): ToolResult | Promise<ToolResult>
 }
 
 function tool<S extends z.ZodType>(def: ToolDef<S>): ToolDef<S> {
@@ -518,15 +525,74 @@ const TOOLS = {
   }),
 
   search: tool({
-    description: 'Ищет по всем заметкам и задачам сразу. Удобно, когда пользователь ссылается на что-то по смыслу.',
+    description:
+      'Ищет по всем заметкам и задачам сразу: и по словам, и по смыслу (находит «где я писал про токены», ' +
+      'даже если там написано «SOL и TON»). Используй, когда пользователь ссылается на что-то, ищет или вспоминает.',
     schema: z.object({ query: z.string().min(1) }).strict(),
-    run(store, { query }) {
+    run(store, { query }, ctx) {
       const notes = store.listNotes({ query })
       const tasks = store.listTasks({ query })
+      const keyword = { notes: notes.map((n) => noteView(n)), tasks: tasks.map((t) => taskView(store, t)) }
+      const summary = (extra: number): string =>
+        `Поиск «${query}»: заметок ${notes.length}, задач ${tasks.length}` + (extra ? `, по смыслу ещё ${extra}` : '')
+      if (!ctx.semanticSearch) return { result: keyword, summary: summary(0) }
+      const seen = new Set([...notes.map((n) => n.id), ...tasks.map((t) => t.id)])
+      return ctx.semanticSearch(query).then(
+        (hits) => {
+          const byMeaning = hits.filter((h) => !seen.has(h.id))
+          return { result: { ...keyword, byMeaning }, summary: summary(byMeaning.length) }
+        },
+        // The model may be unavailable (first launch offline): word search still answers.
+        () => ({ result: keyword, summary: summary(0) })
+      )
+    }
+  }),
+
+  get_briefing: tool({
+    description:
+      'Утренний брифинг: просроченные задачи, задачи на сегодня, напоминания сегодня, что в работе, что скоро. ' +
+      'Используй на «брифинг», «что у меня сегодня», «с чего начать день», «план на сегодня?».',
+    schema: z.object({}).strict(),
+    run(store) {
+      const b = buildBriefing(store)
       return {
-        result: { notes: notes.map((n) => noteView(n)), tasks: tasks.map((t) => taskView(store, t)) },
-        summary: `Поиск «${query}»: заметок ${notes.length}, задач ${tasks.length}`
+        result: b,
+        summary: `Брифинг: сегодня ${b.today.length}, просрочено ${b.overdue.length}, напоминаний ${b.reminders.length}`
       }
+    }
+  }),
+
+  get_weekly_review: tool({
+    description:
+      'Обзор недели (последние 7 дней): что закрыто, по топикам, новые заметки, что висит с просрочкой, что в работе, ' +
+      'что на следующей неделе, давно забытые задачи без срока. Используй на «обзор недели», «итоги недели», «что я сделал за неделю».',
+    schema: z.object({}).strict(),
+    run(store) {
+      const r = buildWeeklyReview(store)
+      return { result: r, summary: `Обзор недели: закрыто ${r.completed.length}, просрочено ${r.overdue.length}` }
+    }
+  }),
+
+  digest_settings: tool({
+    description:
+      'Показывает или меняет уведомления: ежедневный утренний брифинг (dailyEnabled, dailyTime) и итоги недели ' +
+      'по воскресеньям (weeklyEnabled, weeklyTime). Время местное ЧЧ:ММ. Без параметров только показывает.',
+    schema: z
+      .object({
+        dailyEnabled: z.boolean().optional(),
+        dailyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Формат ЧЧ:ММ').optional(),
+        weeklyEnabled: z.boolean().optional(),
+        weeklyTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Формат ЧЧ:ММ').optional()
+      })
+      .strict(),
+    run(_store, patch, ctx) {
+      if (!ctx.digestSettings) throw new Error('Настройки уведомлений недоступны')
+      const changed = Object.values(patch).some((v) => v !== undefined)
+      const s = changed ? ctx.digestSettings.update(patch) : ctx.digestSettings.get()
+      const line =
+        `брифинг ${s.dailyEnabled ? `в ${s.dailyTime}` : 'выключен'}, ` +
+        `итоги недели ${s.weeklyEnabled ? `по воскресеньям в ${s.weeklyTime}` : 'выключены'}`
+      return { result: s, summary: changed ? `Уведомления: ${line}` : `Сейчас: ${line}` }
     }
   })
 } satisfies Record<string, ToolDef<z.ZodType>>
@@ -548,20 +614,51 @@ export interface ToolOutcome {
   summary: string
 }
 
+/** Runs a tool that answers synchronously (all but search with semantic search on). */
 export function executeTool(store: Store, name: string, input: unknown, ctx: ToolContext = {}): ToolOutcome {
+  const prepared = prepare(store, name, input, ctx)
+  if ('outcome' in prepared) return prepared.outcome
+  if (prepared.pending instanceof Promise) {
+    return { content: `${name} работает асинхронно, используй runTool`, isError: true, summary: `${name}: асинхронный` }
+  }
+  return success(prepared.pending)
+}
+
+/** Runs any tool, waiting for asynchronous ones. */
+export async function runTool(store: Store, name: string, input: unknown, ctx: ToolContext = {}): Promise<ToolOutcome> {
+  const prepared = prepare(store, name, input, ctx)
+  if ('outcome' in prepared) return prepared.outcome
+  try {
+    return success(await prepared.pending)
+  } catch (err) {
+    return failure(name, err)
+  }
+}
+
+const success = ({ result, summary }: ToolResult): ToolOutcome => ({ content: JSON.stringify(result), isError: false, summary })
+
+function failure(name: string, err: unknown): ToolOutcome {
+  const msg = err instanceof Error ? err.message : String(err)
+  return { content: msg, isError: true, summary: `${name}: ${msg}` }
+}
+
+function prepare(
+  store: Store,
+  name: string,
+  input: unknown,
+  ctx: ToolContext
+): { outcome: ToolOutcome } | { pending: ToolResult | Promise<ToolResult> } {
   const def = TOOLS[name as ToolName] as ToolDef<z.ZodType> | undefined
-  if (!def) return { content: `Неизвестный инструмент ${name}`, isError: true, summary: `Неизвестный инструмент ${name}` }
+  if (!def) return { outcome: { content: `Неизвестный инструмент ${name}`, isError: true, summary: `Неизвестный инструмент ${name}` } }
 
   const parsed = def.schema.safeParse(input)
   if (!parsed.success) {
     const msg = `Неверные параметры: ${z.prettifyError(parsed.error)}`
-    return { content: msg, isError: true, summary: `${name}: неверные параметры` }
+    return { outcome: { content: msg, isError: true, summary: `${name}: неверные параметры` } }
   }
   try {
-    const { result, summary } = def.run(store, parsed.data, ctx)
-    return { content: JSON.stringify(result), isError: false, summary }
+    return { pending: def.run(store, parsed.data, ctx) }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { content: msg, isError: true, summary: `${name}: ${msg}` }
+    return { outcome: failure(name, err) }
   }
 }

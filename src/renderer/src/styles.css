@@ -209,6 +209,11 @@ body.resizing .assistant-wrap { transition: none; }
 }
 .page-sub { display: flex; gap: 6px; color: var(--muted); font-size: 13px; margin-top: 4px; min-height: 20px; }
 .page-sub .dot { color: var(--faint); }
+.page-sub-link {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; padding: 0 8px; border-radius: 999px;
+  color: var(--muted); font-size: 12px; transition: background 0.15s, color 0.15s;
+}
+.page-sub-link:hover { background: var(--accent-soft); color: var(--accent); }
 
 /* Topic header */
 .topic-header h1 { gap: 6px; }
@@ -509,7 +514,16 @@ body.resizing .assistant-wrap { transition: none; }
 .palette-item.active { background: var(--accent-soft); }
 .palette-item.active .icon { color: var(--accent); }
 .palette-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-hint { font-size: 12px; color: var(--muted); }
+.palette-hint { font-size: 12px; color: var(--muted); max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-status {
+  display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--muted);
+}
+.palette-spinner {
+  width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .palette-footer {
   display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 14px; border-top: 1px solid var(--border);
   font-size: 12px; color: var(--faint); background: var(--panel);

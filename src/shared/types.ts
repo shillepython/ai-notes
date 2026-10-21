@@ -133,3 +133,31 @@ export interface Attachment {
   size: number
   isImage: boolean
 }
+
+/** A note or task found by meaning (local embeddings), not by exact words. */
+export interface SemanticHit {
+  kind: 'note' | 'task'
+  id: string
+  title: string
+  /** The passage that matched best, trimmed. */
+  snippet: string
+  /** Cosine similarity of the best passage, 0..1. */
+  score: number
+}
+
+/** 'loading' while the search model downloads (first use only) or the index is built. */
+export type SemanticSearchResult =
+  | { status: 'ready'; hits: SemanticHit[] }
+  | { status: 'loading'; progress: number | null }
+  | { status: 'error'; error: string }
+
+export interface DigestSettings {
+  /** Morning briefing notification. */
+  dailyEnabled: boolean
+  /** Local time HH:mm */
+  dailyTime: string
+  /** Weekly review notification on Sunday. */
+  weeklyEnabled: boolean
+  /** Local time HH:mm */
+  weeklyTime: string
+}

@@ -11,6 +11,8 @@ import { initTemplates } from './templates'
 import { createTray, openedAtLogin } from './tray'
 import { openCapture, registerCapture } from './capture'
 import { VOICE_SHORTCUT } from './voice'
+import { startDigests } from './digestSchedule'
+import { registerSemantic } from './semantic'
 
 // Keep data in ~/Library/Application Support/ai-notes for both `npm run dev` and the
 // packaged "AI Notes.app" (whose name would otherwise pick a different folder).
@@ -120,6 +122,8 @@ app.whenReady().then(() => {
       voice: globalShortcut.isRegistered(VOICE_SHORTCUT) ? VOICE_SHORTCUT : null
     })
   })
+  startDigests(store, () => showMain())
+  registerSemantic(store)
 
   app.on('activate', () => {
     if (!mainWindow) createWindow()

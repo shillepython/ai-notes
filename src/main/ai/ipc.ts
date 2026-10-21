@@ -1,6 +1,8 @@
 import { clipboard, ipcMain, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { getStore } from '../store'
+import { semanticSearch } from '../semantic'
+import { getDigestSettings, updateDigestSettings } from '../digestSchedule'
 import type { AiEvent, AiSettingsPatch, AiViewContext } from '@shared/ai'
 import { Conversation, describeError, verifyKey } from './agent'
 import { generateCodePrompt } from './codePrompt'
@@ -52,6 +54,10 @@ function run(
         ...getPrefs(),
         store: getStore(),
         view: viewCtx,
+        services: {
+          semanticSearch: (q) => semanticSearch(q),
+          digestSettings: { get: getDigestSettings, update: updateDigestSettings }
+        },
         signal: controller.signal,
         onItem: (item) => emit(target, { requestId, type: 'item', item })
       })

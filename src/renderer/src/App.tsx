@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Task } from '@shared/types'
+import type { DigestSettings, Task } from '@shared/types'
 import type { SyncStatus } from '@shared/data'
 import { applyTemplate, type NoteTemplate } from '@shared/templates'
 import { useTemplates } from './templates'
@@ -46,6 +46,7 @@ export default function App(): React.JSX.Element {
   const [assistantOpen, setAssistantOpen] = usePersistentFlag('ui.assistant', true)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sync, setSync] = useState<SyncStatus | null>(null)
+  const [digest, setDigest] = useState<DigestSettings | null>(null)
   const [assistantWidth, setAssistantWidth] = useState(() => {
     try {
       return Number(localStorage.getItem('ui.assistantWidth')) || 400
@@ -107,6 +108,30 @@ export default function App(): React.JSX.Element {
     setTimeout(() => window.dispatchEvent(new CustomEvent('ui:open-task', { detail: task.id })), 60)
   }
 
+  const askDigest = (kind: 'briefing' | 'weekly'): void => askAssistant(kind === 'briefing' ? 'Утренний брифинг' : 'Итоги недели')
+
+  const toggleDigest = async (key: 'dailyEnabled' | 'weeklyEnabled'): Promise<void> => {
+    if (!digest) return
+    const next = await window.api.digest.updateSettings({ [key]: !digest[key] })
+    setDigest(next)
+    toast(
+      key === 'dailyEnabled'
+        ? next.dailyEnabled ? `Брифинг будет приходить в ${next.dailyTime}` : 'Ежедневный брифинг выключен'
+        : next.weeklyEnabled ? `Итоги недели по воскресеньям в ${next.weeklyTime}` : 'Итоги недели выключены'
+    )
+  }
+
+  useEffect(() => {
+    window.api.digest.getSettings().then(setDigest)
+    const offOpen = window.api.digest.onOpen(askDigest)
+    const onUiDigest = (e: Event): void => askDigest((e as CustomEvent<'briefing' | 'weekly'>).detail)
+    window.addEventListener('ui:digest', onUiDigest)
+    return () => {
+      offOpen()
+      window.removeEventListener('ui:digest', onUiDigest)
+    }
+  }, [])
+
   const actions = useMemo<Command[]>(
     () => [
       { id: 'new-task', group: 'Действия', label: 'Новая задача', icon: 'plus', shortcut: 'mod+n', run: newTask },
@@ -138,9 +163,45 @@ export default function App(): React.JSX.Element {
         shortcut: 'mod+.',
         run: () => setAssistantOpen((v) => !v)
       },
+      {
+        id: 'briefing',
+        group: 'Сводки',
+        label: 'Утренний брифинг',
+        icon: 'sun',
+        keywords: 'что у меня сегодня сводка план дня',
+        run: () => askDigest('briefing')
+      },
+      {
+        id: 'weekly',
+        group: 'Сводки',
+        label: 'Итоги недели',
+        icon: 'calendar',
+        keywords: 'обзор недели что сделал сводка',
+        run: () => askDigest('weekly')
+      },
+      ...(digest
+        ? [
+            {
+              id: 'toggle-daily',
+              group: 'Сводки',
+              label: digest.dailyEnabled ? `Не присылать брифинг в ${digest.dailyTime}` : 'Присылать брифинг каждое утро',
+              icon: 'bell' as const,
+              keywords: 'уведомление брифинг выключить включить',
+              run: () => void toggleDigest('dailyEnabled')
+            },
+            {
+              id: 'toggle-weekly',
+              group: 'Сводки',
+              label: digest.weeklyEnabled ? 'Не присылать итоги недели' : 'Присылать итоги недели по воскресеньям',
+              icon: 'bell' as const,
+              keywords: 'уведомление обзор итоги выключить включить',
+              run: () => void toggleDigest('weeklyEnabled')
+            }
+          ]
+        : []),
       { id: 'trash', group: 'Перейти', label: 'Корзина', icon: 'trash', keywords: 'удалённые', run: () => setView({ kind: 'trash' }) }
     ],
-    [sidebarOpen, assistantOpen, view, templates]
+    [sidebarOpen, assistantOpen, view, templates, digest]
   )
 
   useEffect(() => {

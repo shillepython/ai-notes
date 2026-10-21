@@ -3,10 +3,12 @@ import type {
   Attachment,
   CompleteTaskOptions,
   DataChange,
+  DigestSettings,
   Note,
   NoteInput,
   NotePatch,
   NoteQuery,
+  SemanticSearchResult,
   Task,
   TaskInput,
   TaskPatch,
@@ -87,6 +89,22 @@ const api = {
     create: (input: { name: string; title?: string; content: string; icon?: string }): Promise<NoteTemplate> =>
       ipcRenderer.invoke('templates:create', input),
     delete: (id: string): Promise<boolean> => ipcRenderer.invoke('templates:delete', id)
+  },
+  /** Search by meaning with a local model; the first call starts the one-time model download. */
+  search: {
+    semantic: (query: string): Promise<SemanticSearchResult> => ipcRenderer.invoke('semantic:search', query)
+  },
+  /** Morning briefing and weekly review notifications. */
+  digest: {
+    getSettings: (): Promise<DigestSettings> => ipcRenderer.invoke('digest:getSettings'),
+    updateSettings: (patch: Partial<DigestSettings>): Promise<DigestSettings> =>
+      ipcRenderer.invoke('digest:updateSettings', patch),
+    /** Fires when the user clicks a briefing or weekly review notification. */
+    onOpen: (cb: (kind: 'briefing' | 'weekly') => void): (() => void) => {
+      const listener = (_e: unknown, kind: 'briefing' | 'weekly'): void => cb(kind)
+      ipcRenderer.on('digest:open', listener)
+      return () => ipcRenderer.removeListener('digest:open', listener)
+    }
   },
   /** Claude assistant: API key settings and chat. */
   ai: aiApi,

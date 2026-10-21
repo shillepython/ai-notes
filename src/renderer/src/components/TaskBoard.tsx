@@ -224,6 +224,15 @@ export default function TaskBoard({ tasks, notes, topics, filter, topicId, onTop
           {subtitle && <span className="capitalize">{subtitle}</span>}
           {subtitle && visible.length > 0 && <span className="dot">·</span>}
           {visible.length > 0 && <span>{pluralTasks(visible.length)}</span>}
+          {filter === 'today' && !topic && (
+            <button
+              className="page-sub-link"
+              title="Сводка дня от ассистента"
+              onClick={() => window.dispatchEvent(new CustomEvent('ui:digest', { detail: 'briefing' }))}
+            >
+              <Icon name="sparkles" size={12} /> Брифинг
+            </button>
+          )}
         </div>
       </header>
 
