@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Task } from '@shared/types'
+import type { SyncStatus } from '@shared/data'
 import { useData } from './useData'
 import { TASK_VIEWS, type View } from './taskViews'
 import { today } from './dates'
@@ -39,6 +40,7 @@ export default function App(): React.JSX.Element {
   const [sidebarOpen, setSidebarOpen] = usePersistentFlag('ui.sidebar', true)
   const [assistantOpen, setAssistantOpen] = usePersistentFlag('ui.assistant', true)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sync, setSync] = useState<SyncStatus | null>(null)
   const [assistantWidth, setAssistantWidth] = useState(() => {
     try {
       return Number(localStorage.getItem('ui.assistantWidth')) || 400
@@ -125,6 +127,82 @@ export default function App(): React.JSX.Element {
     ],
     [sidebarOpen, assistantOpen, view]
   )
+
+  useEffect(() => {
+    window.api.data.syncStatus().then(setSync)
+    return window.api.data.onSyncStatus(setSync)
+  }, [])
+
+  const dataActions = useMemo<Command[]>(() => {
+    const run = (fn: () => Promise<void>) => async (): Promise<void> => {
+      try {
+        await fn()
+      } catch (err) {
+        toast(`Не получилось: ${err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : err}`)
+      }
+    }
+    const list: Command[] = [
+      {
+        id: 'export-md',
+        group: 'Данные',
+        label: 'Экспорт в Markdown',
+        icon: 'download',
+        shortcut: 'mod+shift+e',
+        keywords: 'выгрузить сохранить md',
+        run: run(async () => {
+          const res = await window.api.data.exportMarkdown()
+          if (res) toast(`Экспортировано: ${res.notes} заметок и все задачи`)
+        })
+      },
+      {
+        id: 'backup',
+        group: 'Данные',
+        label: 'Создать резервную копию',
+        icon: 'archive',
+        keywords: 'бэкап backup',
+        run: run(async () => {
+          await window.api.data.backup()
+          toast('Резервная копия сохранена', { label: 'Показать', run: () => void window.api.data.openBackups() })
+        })
+      },
+      {
+        id: 'restore',
+        group: 'Данные',
+        label: 'Восстановить из резервной копии…',
+        icon: 'undo',
+        keywords: 'бэкап backup',
+        run: run(async () => void (await window.api.data.restore()))
+      }
+    ]
+    if (sync?.available) {
+      list.push({
+        id: 'sync-toggle',
+        group: 'Данные',
+        label: sync.enabled ? 'Выключить синхронизацию через iCloud' : 'Включить синхронизацию через iCloud',
+        icon: 'cloud',
+        keywords: 'icloud синк sync mac',
+        run: run(async () => {
+          const s = await window.api.data.setSyncEnabled(!sync.enabled)
+          toast(s.enabled ? 'Синхронизация через iCloud Drive включена' : 'Синхронизация выключена')
+        })
+      })
+      if (sync.enabled) {
+        list.push({
+          id: 'sync-now',
+          group: 'Данные',
+          label: 'Синхронизировать сейчас',
+          icon: 'cloud',
+          hint: sync.devices.length ? `ещё Mac: ${sync.devices.map((d) => d.name).join(', ')}` : 'других Mac пока нет',
+          keywords: 'icloud sync',
+          run: run(async () => {
+            const s = await window.api.data.syncNow()
+            toast(s.lastError ? `Синхронизация: ${s.lastError}` : 'Синхронизировано')
+          })
+        })
+      }
+    }
+    return list
+  }, [sync])
 
   // Clicking a reminder notification opens its task.
   useEffect(
@@ -243,7 +321,7 @@ export default function App(): React.JSX.Element {
           notes={notes}
           tasks={tasks}
           topics={topics}
-          actions={actions}
+          actions={[...actions, ...dataActions]}
           onNavigate={setView}
           onOpenTask={openTask}
           onAsk={askAssistant}

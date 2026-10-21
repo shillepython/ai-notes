@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS topics (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS purged (
+  kind TEXT NOT NULL,
+  id TEXT NOT NULL,
+  purged_at TEXT NOT NULL,
+  PRIMARY KEY (kind, id)
+);
 `
 
 type Row = Record<string, unknown>
@@ -57,6 +63,22 @@ const TASK_SELECT = `SELECT *, CASE WHEN topic_id IN (SELECT id FROM topics WHER
   AS live_topic_id FROM tasks`
 
 const TABLES: Record<TrashKind, string> = { note: 'notes', task: 'tasks', topic: 'topics' }
+
+/** All rows of every table, trashed ones included, plus what was erased for good. Used for sync between Macs. */
+export interface Snapshot {
+  format: 1
+  notes: Row[]
+  tasks: Row[]
+  topics: Row[]
+  purged: { kind: TrashKind; id: string; purgedAt: string }[]
+}
+
+/** When a row last changed in any way, including a move to or from the trash. */
+const rowStamp = (r: Row): string => {
+  const updated = r.updated_at as string
+  const deleted = (r.deleted_at as string | null) ?? ''
+  return deleted > updated ? deleted : updated
+}
 
 const toNote = (r: Row): Note => ({
   id: r.id as string,
@@ -134,6 +156,89 @@ export class Store extends EventEmitter {
 
   close(): void {
     this.db.close()
+  }
+
+  /** Writes a consistent copy of the whole database to a new file (which must not exist). */
+  backupTo(path: string): void {
+    this.db.prepare('VACUUM INTO ?').run(path)
+  }
+
+  // ---- Sync ----
+
+  snapshot(): Snapshot {
+    const all = (table: string): Row[] => this.db.prepare(`SELECT * FROM ${table}`).all() as Row[]
+    return {
+      format: 1,
+      notes: all('notes'),
+      tasks: all('tasks'),
+      topics: all('topics'),
+      purged: all('purged').map((r) => ({ kind: r.kind as TrashKind, id: r.id as string, purgedAt: r.purged_at as string }))
+    }
+  }
+
+  /**
+   * Brings in another device's snapshot. Per row, the most recent change wins (edit, move to
+   * the trash or restore); things erased for good stay erased everywhere. Returns how many rows changed.
+   */
+  mergeSnapshot(snap: Snapshot): number {
+    if (snap.format !== 1) throw new Error(`Unsupported snapshot format: ${String(snap.format)}`)
+    const changes: DataChange[] = []
+    const isPurged = this.db.prepare('SELECT 1 FROM purged WHERE kind = ? AND id = ?')
+    this.db.exec('BEGIN')
+    try {
+      for (const p of snap.purged) {
+        if (!TABLES[p.kind]) continue
+        this.db.prepare('INSERT OR IGNORE INTO purged (kind, id, purged_at) VALUES (?, ?, ?)').run(p.kind, p.id, p.purgedAt)
+        const res = this.db.prepare(`DELETE FROM ${TABLES[p.kind]} WHERE id = ?`).run(p.id)
+        if (res.changes) changes.push({ entity: p.kind, action: 'purged', id: p.id })
+      }
+      const kinds: [TrashKind, Row[]][] = [
+        ['topic', snap.topics],
+        ['note', snap.notes],
+        ['task', snap.tasks]
+      ]
+      for (const [kind, rows] of kinds) {
+        const table = TABLES[kind]
+        const cols = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((c) => c.name as string)
+        for (const row of rows) {
+          const id = row.id as string
+          if (typeof id !== 'string' || typeof row.updated_at !== 'string' || isPurged.get(kind, id)) continue
+          const local = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Row | undefined
+          if (local && rowStamp(row) <= rowStamp(local)) continue
+          const present = cols.filter((c) => c in row)
+          this.db
+            .prepare(`INSERT OR REPLACE INTO ${table} (${present.join(', ')}) VALUES (${present.map(() => '?').join(', ')})`)
+            .run(...present.map((c) => row[c] as string | number | null))
+          if (kind === 'topic' && !row.deleted_at) this.dedupeTopicName(id)
+          const trashed = Boolean(row.deleted_at)
+          const action: DataChange['action'] = !local
+            ? trashed ? 'deleted' : 'created'
+            : trashed && !local.deleted_at ? 'deleted' : !trashed && local.deleted_at ? 'created' : 'updated'
+          if (!(trashed && !local)) changes.push({ entity: kind, action, id })
+          if (kind === 'topic' && Boolean(local?.deleted_at) !== trashed) {
+            for (const taskId of this.topicTaskIds(id)) changes.push({ entity: 'task', action: 'updated', id: taskId })
+          }
+        }
+      }
+      this.db.exec('COMMIT')
+    } catch (err) {
+      this.db.exec('ROLLBACK')
+      throw err
+    }
+    for (const c of changes) this.emitChange(c)
+    return changes.length
+  }
+
+  /** Topics made separately on two Macs may share a name; names must stay unique, so the incoming one gets a suffix. */
+  private dedupeTopicName(id: string): void {
+    const row = this.db.prepare('SELECT name FROM topics WHERE id = ?').get(id) as Row
+    const base = row.name as string
+    const taken = (name: string): boolean =>
+      this.listTopics().some((t) => t.id !== id && t.name.toLocaleLowerCase() === name.toLocaleLowerCase())
+    if (!taken(base)) return
+    let name = base
+    for (let n = 2; taken(name); n++) name = `${base} (${n})`
+    this.db.prepare('UPDATE topics SET name = ? WHERE id = ?').run(name, id)
   }
 
   private emitChange(change: DataChange): void {
@@ -299,7 +404,8 @@ export class Store extends EventEmitter {
 
   /** Records that the reminder was shown, so it does not fire again. */
   markReminded(id: string): void {
-    const res = this.db.prepare('UPDATE tasks SET reminded_at = ? WHERE id = ?').run(now(), id)
+    const ts = now()
+    const res = this.db.prepare('UPDATE tasks SET reminded_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, id)
     if (res.changes) this.emitChange({ entity: 'task', action: 'updated', id })
   }
 
@@ -405,7 +511,10 @@ export class Store extends EventEmitter {
       for (let n = 2; this.findTopicByName(name); n++) name = `${row.name} (${n})`
       this.db.prepare('UPDATE topics SET name = ? WHERE id = ?').run(name, id)
     }
-    const res = this.db.prepare(`UPDATE ${TABLES[kind]} SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`).run(id)
+    // Bumping updated_at lets sync tell the restore apart from the older move to the trash.
+    const res = this.db
+      .prepare(`UPDATE ${TABLES[kind]} SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL`)
+      .run(now(), id)
     if (!res.changes) return false
     if (kind === 'topic') this.emitTasksUpdated(this.topicTaskIds(id))
     this.emitChange({ entity: kind, action: 'created', id })
@@ -416,6 +525,8 @@ export class Store extends EventEmitter {
   deleteForever(kind: TrashKind, id: string): boolean {
     const res = this.db.prepare(`DELETE FROM ${TABLES[kind]} WHERE id = ? AND deleted_at IS NOT NULL`).run(id)
     if (!res.changes) return false
+    // Remembered so that sync erases it on other Macs too instead of bringing it back.
+    this.db.prepare('INSERT OR REPLACE INTO purged (kind, id, purged_at) VALUES (?, ?, ?)').run(kind, id, now())
     if (kind === 'topic') this.db.prepare('UPDATE tasks SET topic_id = NULL WHERE topic_id = ?').run(id)
     this.emitChange({ entity: kind, action: 'purged', id })
     return true

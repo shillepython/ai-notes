@@ -18,6 +18,7 @@ import type {
 } from '../shared/types'
 import { aiApi } from './ai'
 import { voiceApi } from './voice'
+import { dataApi } from './data'
 
 const api = {
   notes: {
@@ -66,6 +67,8 @@ const api = {
     return () => ipcRenderer.removeListener('data:changed', listener)
   },
   voice: voiceApi,
+  /** Markdown export, backups and iCloud sync. */
+  data: dataApi,
   /** Fires when the user clicks a reminder notification. Returns an unsubscribe fn. */
   onReminderOpen: (cb: (taskId: string) => void): (() => void) => {
     const listener = (_e: unknown, taskId: string): void => cb(taskId)

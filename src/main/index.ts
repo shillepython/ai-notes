@@ -5,6 +5,7 @@ import { registerIpc } from './ipc'
 import { registerAiIpc } from './ai/ipc'
 import { registerVoice } from './voice'
 import { startReminders } from './reminders'
+import { prepareDatabase, registerData } from './data'
 
 // Keep data in ~/Library/Application Support/ai-notes for both `npm run dev` and the
 // packaged "AI Notes.app" (whose name would otherwise pick a different folder).
@@ -69,8 +70,11 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(() => {
-  const store = initStore(join(app.getPath('userData'), 'ai-notes.db'))
+  const dbPath = join(app.getPath('userData'), 'ai-notes.db')
+  prepareDatabase(dbPath)
+  const store = initStore(dbPath)
   registerIpc(store)
+  registerData(store, dbPath)
   registerAiIpc()
   registerVoice(() => {
     if (!mainWindow) createWindow()
