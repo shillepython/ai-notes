@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Note, Task, Topic, TrashItem } from '@shared/types'
+import type { DocFile } from '@shared/docs'
 import { TASK_VIEWS, filterTasks, type View } from '../taskViews'
 import { Icon, Kbd } from './Icon'
 
@@ -8,13 +9,14 @@ interface Props {
   tasks: Task[]
   topics: Topic[]
   trash: TrashItem[]
+  docs: DocFile[]
   view: View
   onSelect: (v: View) => void
   onCreateNote: () => void
   onOpenPalette: () => void
 }
 
-export default function Sidebar({ notes, tasks, topics, trash, view, onSelect, onCreateNote, onOpenPalette }: Props): React.JSX.Element {
+export default function Sidebar({ notes, tasks, topics, trash, docs, view, onSelect, onCreateNote, onOpenPalette }: Props): React.JSX.Element {
   const [newTopic, setNewTopic] = useState<string | null>(null)
   const open = filterTasks(tasks, 'all')
 
@@ -94,6 +96,29 @@ export default function Sidebar({ notes, tasks, topics, trash, view, onSelect, o
             Группы задач: Работа, Дом…
           </button>
         )}
+
+        <div className="sidebar-section row">
+          <span>Документы</span>
+          <button className="icon-btn" title="Все документы и шаблоны" onClick={() => onSelect({ kind: 'docs' })}>
+            <Icon name="plus" size={14} />
+          </button>
+        </div>
+        <button className={`sidebar-item ${view.kind === 'docs' ? 'active' : ''}`} onClick={() => onSelect({ kind: 'docs' })}>
+          <Icon name="book" className="muted-icon" />
+          <span className="label">Документы и шаблоны</span>
+          {docs.length > 0 && <span className="count">{docs.length}</span>}
+        </button>
+        {docs.slice(0, 5).map((d) => (
+          <button
+            key={d.path}
+            className={`sidebar-item ${view.kind === 'doc' && view.path === d.path ? 'active' : ''}`}
+            onClick={() => onSelect({ kind: 'doc', path: d.path })}
+            title={d.path}
+          >
+            <Icon name="file" className="muted-icon" />
+            <span className="label">{d.title || d.name}</span>
+          </button>
+        ))}
 
         <div className="sidebar-section row">
           <span>Заметки</span>

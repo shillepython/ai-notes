@@ -11,6 +11,9 @@ import Sidebar from './components/Sidebar'
 import NoteEditor from './components/NoteEditor'
 import TaskBoard from './components/TaskBoard'
 import TrashView from './components/TrashView'
+import DocsHome from './components/DocsHome'
+import DocEditor from './components/DocEditor'
+import { useDocLibrary } from './docs'
 import AssistantPanel from './components/AssistantPanel'
 import CommandPalette, { type Command } from './components/CommandPalette'
 import Toasts, { toast } from './components/Toasts'
@@ -41,6 +44,7 @@ function usePersistentFlag(key: string, initial: boolean): [boolean, (v: boolean
 export default function App(): React.JSX.Element {
   const { notes, tasks, topics, trash } = useData()
   const templates = useTemplates()
+  const library = useDocLibrary()
   const [view, setView] = useState<View>({ kind: 'tasks', filter: 'today' })
   const [sidebarOpen, setSidebarOpen] = usePersistentFlag('ui.sidebar', true)
   const [assistantOpen, setAssistantOpen] = usePersistentFlag('ui.assistant', true)
@@ -86,7 +90,7 @@ export default function App(): React.JSX.Element {
   }
 
   const newTask = (): void => {
-    if (view.kind === 'note' || view.kind === 'trash' || (view.kind === 'tasks' && view.filter === 'done')) setView({ kind: 'tasks', filter: 'today' })
+    if (view.kind !== 'topic' && (view.kind !== 'tasks' || view.filter === 'done')) setView({ kind: 'tasks', filter: 'today' })
     // After the view switch has rendered the quick-add field.
     setTimeout(() => emitUi('quick-add:focus'), 30)
   }
@@ -146,6 +150,42 @@ export default function App(): React.JSX.Element {
           run: () => createNote(t)
         })
       ),
+      { id: 'docs', group: 'Перейти', label: 'Документы', icon: 'book', keywords: 'markdown md файлы шаблоны', run: () => setView({ kind: 'docs' }) },
+      {
+        id: 'open-md',
+        group: 'Документы',
+        label: 'Открыть .md файл…',
+        icon: 'folder',
+        keywords: 'markdown открыть файл читалка',
+        run: async () => {
+          const paths = await window.api.docs.open()
+          if (paths.length) setView({ kind: 'doc', path: paths[0] })
+        }
+      },
+      ...library.templates.map(
+        (t): Command => ({
+          id: `new-doc-${t.path}`,
+          group: 'Документы',
+          label: `Новый документ: ${t.name}`,
+          icon: 'template',
+          keywords: 'шаблон markdown md заполнить',
+          run: async () => {
+            const doc = await window.api.docs.create({ fromTemplate: t.path })
+            setView({ kind: 'doc', path: doc.path })
+          }
+        })
+      ),
+      ...library.docs.slice(0, 30).map(
+        (d): Command => ({
+          id: `doc-${d.path}`,
+          group: 'Документы',
+          label: d.title || d.name,
+          hint: `${d.name}.md`,
+          icon: 'file',
+          keywords: 'документ markdown',
+          run: () => setView({ kind: 'doc', path: d.path })
+        })
+      ),
       { id: 'ask', group: 'Действия', label: 'Спросить ассистента', icon: 'sparkles', shortcut: 'mod+j', run: focusAssistant },
       {
         id: 'toggle-sidebar',
@@ -201,7 +241,7 @@ export default function App(): React.JSX.Element {
         : []),
       { id: 'trash', group: 'Перейти', label: 'Корзина', icon: 'trash', keywords: 'удалённые', run: () => setView({ kind: 'trash' }) }
     ],
-    [sidebarOpen, assistantOpen, view, templates, digest]
+    [sidebarOpen, assistantOpen, view, templates, digest, library]
   )
 
   useEffect(() => {
@@ -309,6 +349,9 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('ui:open-link', listener)
   }, [])
 
+  // .md files opened from Finder show up as documents.
+  useEffect(() => window.api.docs.onOpenPath((path) => setView({ kind: 'doc', path })), [])
+
   // Clicking a reminder notification opens its task.
   useEffect(
     () =>
@@ -326,7 +369,7 @@ export default function App(): React.JSX.Element {
         ? { kind: 'topic', topicId: view.id }
         : view.kind === 'note'
           ? { kind: 'note', noteId: view.id }
-          : { kind: 'tasks', filter: view.kind === 'trash' ? 'trash' : view.filter }
+          : { kind: 'tasks', filter: view.kind === 'tasks' ? view.filter : view.kind }
     )
   }, [view])
 
@@ -353,7 +396,8 @@ export default function App(): React.JSX.Element {
   })
 
   const currentNote = view.kind === 'note' ? notes.find((n) => n.id === view.id) : undefined
-  const viewKey = view.kind === 'tasks' ? view.filter : view.kind === 'trash' ? 'trash' : view.id
+  const viewKey =
+    view.kind === 'tasks' ? view.filter : view.kind === 'trash' || view.kind === 'docs' ? view.kind : view.kind === 'doc' ? view.path : view.id
 
   return (
     <div className={`app ${sidebarOpen ? '' : 'sidebar-hidden'} ${assistantOpen ? '' : 'assistant-hidden'}`}>
@@ -363,6 +407,7 @@ export default function App(): React.JSX.Element {
           tasks={tasks}
           topics={topics}
           trash={trash}
+          docs={library.docs}
           view={view}
           onSelect={setView}
           onCreateNote={() => createNote()}
@@ -404,6 +449,16 @@ export default function App(): React.JSX.Element {
             />
           )}
           {view.kind === 'trash' && <TrashView items={trash} />}
+          {view.kind === 'docs' && <DocsHome library={library} onOpen={(path) => setView({ kind: 'doc', path })} />}
+          {view.kind === 'doc' && (
+            <DocEditor
+              path={view.path}
+              doc={[...library.docs, ...library.templates].find((d) => d.path === view.path)}
+              onBack={() => setView({ kind: 'docs' })}
+              onOpen={(path) => setView({ kind: 'doc', path })}
+              onOpenNote={(id) => setView({ kind: 'note', id })}
+            />
+          )}
           {view.kind === 'note' &&
             (currentNote ? (
               <NoteEditor

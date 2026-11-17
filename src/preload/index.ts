@@ -24,6 +24,7 @@ import { aiApi } from './ai'
 import { voiceApi } from './voice'
 import { dataApi } from './data'
 import { captureApi } from './capture'
+import { docsApi } from './docs'
 
 const api = {
   notes: {
@@ -119,6 +120,8 @@ const api = {
   data: dataApi,
   /** Quick capture window (the island under the notch). */
   capture: captureApi,
+  /** Markdown documents and templates (files in ~/Documents/AI Notes). */
+  docs: docsApi,
   /** Fires when the user clicks a reminder notification. Returns an unsubscribe fn. */
   onReminderOpen: (cb: (taskId: string) => void): (() => void) => {
     const listener = (_e: unknown, taskId: string): void => cb(taskId)

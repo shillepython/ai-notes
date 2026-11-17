@@ -13,6 +13,7 @@ import { openCapture, registerCapture } from './capture'
 import { VOICE_SHORTCUT } from './voice'
 import { startDigests } from './digestSchedule'
 import { registerSemantic } from './semantic'
+import { openFromFinder, registerDocuments } from './documents'
 
 // Keep data in ~/Library/Application Support/ai-notes for both `npm run dev` and the
 // packaged "AI Notes.app" (whose name would otherwise pick a different folder).
@@ -95,6 +96,26 @@ function showMain(taskId?: string): BrowserWindow {
 
 app.on('second-instance', () => showMain())
 
+// .md files opened from Finder ("Open With", dropped on the Dock icon). This can fire before the app is ready.
+let pendingDocs: string[] = []
+let docsReady = false
+function openDocs(paths: string[]): void {
+  if (!docsReady) {
+    pendingDocs.push(...paths)
+    return
+  }
+  const win = showMain()
+  const send = (): void => {
+    for (const p of openFromFinder(paths)) win.webContents.send('docs:open-path', p)
+  }
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
+  else send()
+}
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  openDocs([path])
+})
+
 app.whenReady().then(() => {
   const dbPath = join(app.getPath('userData'), 'ai-notes.db')
   prepareDatabase(dbPath)
@@ -103,6 +124,7 @@ app.whenReady().then(() => {
   registerData(store, dbPath)
   initTemplates(join(app.getPath('userData'), 'templates.json'))
   registerAttachments(store, app.getPath('userData'))
+  registerDocuments(app.getPath('userData'))
   registerAiIpc()
   registerVoice(
     () => mainWindow,
@@ -124,6 +146,8 @@ app.whenReady().then(() => {
   })
   startDigests(store, () => showMain())
   registerSemantic(store)
+  docsReady = true
+  if (pendingDocs.length) openDocs(pendingDocs.splice(0))
 
   app.on('activate', () => {
     if (!mainWindow) createWindow()

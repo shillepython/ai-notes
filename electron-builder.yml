@@ -26,5 +26,11 @@ mac:
   notarize: false
   extendInfo:
     NSMicrophoneUsageDescription: AI Notes слушает микрофон, чтобы распознавать голосовые команды и диктовку.
+# AI Notes shows up in Finder's "Open With" for Markdown files (it does not become the default app).
+fileAssociations:
+  - ext: [md, markdown]
+    name: Markdown
+    role: Editor
+    rank: Alternate
 dmg:
   artifactName: ${name}-${version}.${ext}

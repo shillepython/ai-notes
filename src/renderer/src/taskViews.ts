@@ -8,6 +8,8 @@ export type View =
   | { kind: 'topic'; id: string }
   | { kind: 'note'; id: string }
   | { kind: 'trash' }
+  | { kind: 'docs' }
+  | { kind: 'doc'; path: string }
 
 export const TASK_VIEWS: { filter: TaskFilter; label: string; icon: IconName; shortcut: string }[] = [
   { filter: 'today', label: 'Сегодня', icon: 'sun', shortcut: 'mod+1' },
